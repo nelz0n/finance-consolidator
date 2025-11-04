@@ -1,0 +1,132 @@
+# Wise (formerly TransferWise) Configuration
+# Handles transaction history CSV exports from Wise
+
+institution:
+  name: "Wise"
+  type: "payment_service"
+  country: "Multi"
+
+file_detection:
+  filename_patterns:
+    - "transaction-history.csv"
+    - "wise_*.csv"
+    - "transferwise_*.csv"
+
+csv_format:
+  encoding: "utf-8"
+  delimiter: ","
+  has_header: true
+  skip_rows: 0
+
+column_mapping:
+  # Wise has clean, English column names
+  transaction_id: "ID"
+  status: "Status"
+  direction: "Direction"  # IN, OUT
+  created_date: "Created on"
+  finished_date: "Finished on"
+  
+  source_fee_amount: "Source fee amount"
+  source_fee_currency: "Source fee currency"
+  source_name: "Source name"
+  source_amount: "Source amount (after fees)"
+  source_currency: "Source currency"
+  
+  target_name: "Target name"
+  target_amount: "Target amount (after fees)"
+  target_currency: "Target currency"
+  
+  exchange_rate: "Exchange rate"
+  reference: "Reference"
+  batch: "Batch"
+  created_by: "Created by"
+  category: "Category"
+  note: "Note"
+  
+  # Map to standard fields
+  date: "Finished on"
+  description: "Target name"  # For OUT, use Target; for IN, use Source
+  amount_raw: "Source amount (after fees)"
+  currency: "Source currency"
+  
+  # Defaults
+  defaults:
+    institution: "Wise"
+    account: "Wise EUR"
+
+transformations:
+  date:
+    format: "%Y-%m-%d %H:%M:%S"  # "2025-11-03 21:51:17"
+    
+  amount:
+    # Wise uses period as decimal separator
+    decimal_separator: "."
+    # No thousands separator
+    thousands_separator: ""
+    # For OUT transactions, make negative
+    # This is handled in custom logic based on Direction field
+    reverse_sign: false
+    
+  description:
+    # Use Target name for OUT, Source name for IN
+    # This needs custom logic
+    strip_whitespace: true
+    
+  # Custom: Determine amount sign from Direction
+  amount_logic:
+    direction_field: "Direction"
+    outgoing_value: "OUT"
+    incoming_value: "IN"
+    # OUT should be negative, IN positive
+
+filtering:
+  # Only process COMPLETED transactions
+  status_include:
+    - "COMPLETED"
+  
+  # Skip cancelled and refunded
+  status_exclude:
+    - "CANCELLED"
+    - "REFUNDED"
+
+owner_detection:
+  method: "fixed"
+  fixed_owner: "Branislav"  # All Wise transactions belong to one owner
+
+category_mapping:
+  # Wise provides good categories
+  "Transport": "Transport"
+  "Bills": "Bills"
+  "Eating out": "Dining"
+  "Groceries": "Groceries"
+  "Shopping": "Shopping"
+  "General": "Other"
+  "Money added": "Income"
+  "Charity": "Charity"
+  "Entertainment": "Entertainment"
+
+# Special handling for Wise
+special_handling:
+  # Description depends on direction
+  description_logic:
+    outgoing: "Target name"  # Where money went
+    incoming: "Source name"  # Where money came from
+  
+  # Track exchange rates
+  track_exchange_rate: true
+  
+  # Handle multi-currency transactions
+  normalize_currency: "Source currency"  # Use source currency as primary
+
+notes: |
+  Wise exports have:
+  - Clean CSV format with comma delimiter
+  - English column names
+  - DateTime format: YYYY-MM-DD HH:MM:SS
+  - Direction field: IN/OUT
+  - Status field: COMPLETED, CANCELLED, REFUNDED
+  - Rich categorization from Wise
+  - Exchange rate information for currency conversions
+  - Both source and target amounts/currencies
+  - Fees are already deducted (amounts are "after fees")
+  - Multiple transaction types: CARD_TRANSACTION, TRANSFER, etc.

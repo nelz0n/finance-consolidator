@@ -1,0 +1,120 @@
+# Partners Bank (Raiffeisenbank) Configuration
+# Handles XLSX exports from Partners Bank (vypis_*.xlsx)
+
+institution:
+  name: "Partners Bank"
+  type: "bank"
+  country: "CZ"
+
+file_detection:
+  filename_patterns:
+    - "vypis_*.xlsx"
+    - "vypis_*_*.xlsx"
+
+# Note: These are XLSX files but contain semicolon-delimited text in cells
+# Special parser needed
+csv_format:
+  encoding: "utf-8"
+  delimiter: ";"
+  has_header: true
+  skip_rows: 0
+  file_type: "xlsx_with_csv"  # Custom: Excel file with CSV data in cells
+  
+  # The data is split across multiple columns
+  # Column A contains most fields, Columns B-D contain continuation
+  merged_columns: true
+
+column_mapping:
+  # Field positions in the semicolon-delimited data
+  # Based on: Datum provedení;"Datum zúčtování";"Směr úhrady";"Typ úhrady";"Zpráva pro příjemce";...
+  date_performed: 0          # Datum provedení
+  date_settled: 1            # Datum zúčtování
+  direction: 2               # Směr úhrady (Příchozí/Odchozí)
+  transaction_type: 3        # Typ úhrady
+  message: 4                 # Zpráva pro příjemce
+  counterparty_account: 5    # Číslo účtu protistrany
+  counterparty_bank: 6       # Kód banky protistrany
+  counterparty_iban: 7       # IBAN protistrany
+  counterparty_name: 8       # Název protistrany
+  original_counterparty: 9   # Původní název protistrany
+  note: 10                   # Poznámka pro mě
+  constant_symbol: 11        # Konstantní symbol
+  specific_symbol: 12        # Specifický symbol
+  variable_symbol: 13        # Variabilní symbol
+  reference: 14              # Reference
+  amount: 15                 # Částka
+  currency: 16               # Měna
+  original_amount: 17        # Původní částka úhrady
+  original_currency: 18      # Původní měna úhrady
+  exchange_rate: 19          # Směnný kurz
+  card_holder: 20            # Držitel karty
+  card_number: 21            # Číslo karty
+  transaction_id: 22         # Identifikace transakce
+  
+  # Map to standard fields
+  date: 1                    # Use settled date (datum zúčtování)
+  description: 8             # Use counterparty name as description
+  
+  # Defaults
+  defaults:
+    institution: "Partners Bank"
+
+transformations:
+  date:
+    format: "%d. %m. %Y"  # "1. 10. 2025"
+    
+  amount:
+    # Partners uses space as thousands separator and comma as decimal
+    decimal_separator: ","
+    thousands_separator: " "
+    # Negative amounts already have minus sign
+    reverse_sign: false
+    
+  description:
+    # If counterparty name is empty, use transaction type
+    fallback_fields:
+      - "counterparty_name"
+      - "original_counterparty"
+      - "transaction_type"
+      - "message"
+    strip_whitespace: true
+
+  # Additional field: derive account number from filename
+  account_from_filename:
+    pattern: "vypis_(\\d+)_"
+    group: 1
+
+filtering:
+  # No specific filtering needed
+  exclude_descriptions: []
+
+owner_detection:
+  method: "account_mapping"
+  # Map account numbers to owners (extracted from filename)
+  account_mapping:
+    "3581422554": "Unknown"
+    "1330299329": "Branislav"
+    "2106210400": "Branislav"
+  
+  default_owner: "Unknown"
+
+category_mapping:
+  # Map transaction types to categories
+  "Příchozí platba": "Income"
+  "Odchozí platba": "Payment"
+  "Platba kartou": "Card Payment"
+  "Trvalý příkaz": "Standing Order"
+  "Vrácení platby kartou": "Refund"
+  "Vklad v hotovosti": "Cash Deposit"
+  "Výběr v hotovosti": "Cash Withdrawal"
+
+notes: |
+  Partners Bank exports are special:
+  - XLSX format but contain semicolon-delimited text
+  - All data in one cell (column A) with continuation in columns B-D
+  - Headers in first row, data starts from row 2
+  - Account number is in the filename: vypis_<account>_<from>_<to>.xlsx
+  - Date format: "1. 10. 2025" (day. month. year)
+  - Amount in format: "-1 000,00" (space thousands, comma decimal)
+  - Both incoming and outgoing transactions
+  - Rich metadata: symbols, references, card info

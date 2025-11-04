@@ -1,0 +1,120 @@
+# General Settings for Finance Consolidator
+
+# Google Drive Configuration
+google_drive:
+  # Folder ID where input CSV/XLSX files are stored
+  # To find: Open folder in Google Drive, look at URL
+  # https://drive.google.com/drive/folders/YOUR_FOLDER_ID
+  input_folder_id: "YOUR_INPUT_FOLDER_ID"
+  
+  # Credentials file location (relative to project root)
+  credentials_path: "data/credentials/google_credentials.json"
+  
+  # Token storage (will be created after first auth)
+  token_path: "data/credentials/token.pickle"
+
+# Google Sheets Configuration
+google_sheets:
+  # Master spreadsheet ID
+  # To find: Open sheet in Google Sheets, look at URL
+  # https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit
+  master_sheet_id: "YOUR_MASTER_SHEET_ID"
+  
+  # Tab names in the master sheet
+  transactions_tab: "Transactions"
+  balances_tab: "Balances"
+  
+  # Create tabs if they don't exist
+  auto_create_tabs: true
+
+# Currency Configuration
+currency:
+  # Base currency for normalization
+  base_currency: "EUR"
+  
+  # Supported currencies
+  supported:
+    - "EUR"
+    - "CZK"
+  
+  # Exchange rates (static for now)
+  # TODO: Add API integration for dynamic rates
+  rates:
+    CZK: 25.0  # 1 EUR = 25 CZK (approximate)
+    EUR: 1.0
+  
+  # Exchange rate API (optional, not yet implemented)
+  api:
+    enabled: false
+    provider: "exchangerate-api"  # or "ecb", "fixer"
+    api_key: null
+
+# Processing Configuration
+processing:
+  # Batch size for writing to Sheets
+  batch_size: 100
+  
+  # Date format for output
+  output_date_format: "%Y-%m-%d"
+  
+  # Timezone
+  timezone: "Europe/Prague"
+  
+  # Generate transaction IDs
+  generate_ids: true
+  id_format: "TXN_{date}_{seq}"  # e.g., TXN_20241015_001
+
+# Logging Configuration
+logging:
+  # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: "INFO"
+  
+  # Log file location
+  file: "data/logs/finance_consolidator.log"
+  
+  # Console output
+  console: true
+  
+  # Detailed mode (more verbose)
+  detailed: false
+
+# Institution Configuration
+institutions:
+  # Path to institution configs
+  config_dir: "config/institutions"
+  
+  # Auto-discover institution configs
+  auto_discover: true
+  
+  # Enabled institutions (empty means all)
+  enabled: []
+
+# Data Quality
+data_quality:
+  # Validate required fields
+  validate_required: true
+  required_fields:
+    - "date"
+    - "amount"
+    - "currency"
+    - "institution"
+  
+  # Check for suspicious values
+  suspicious_checks:
+    enabled: true
+    max_amount: 1000000  # CZK
+    min_amount: -1000000  # CZK
+  
+  # Handle missing data
+  missing_data:
+    skip_row: false  # Set to true to skip rows with missing required fields
+    default_values:
+      category: "Uncategorized"
+      owner: "Unknown"
+
+# Features (future)
+features:
+  duplicate_detection: false
+  auto_categorization: false
+  email_notifications: false
+  scheduled_runs: false

@@ -1,0 +1,104 @@
+# ČSOB Bank Configuration
+# Handles CSV exports from ČSOB (csob_export_pohyby_*.csv)
+
+institution:
+  name: "ČSOB"
+  type: "bank"
+  country: "CZ"
+
+file_detection:
+  filename_patterns:
+    - "csob_export_pohyby_*.csv"
+    - "csob_*.csv"
+
+csv_format:
+  encoding: "utf-8-sig"  # BOM encoding
+  delimiter: ";"
+  has_header: true
+  skip_rows: 2  # First row is title, second row is empty, third row is header
+
+column_mapping:
+  # Core fields
+  date: "datum zaúčtování"
+  description: "zpráva"
+  amount: "částka"
+  currency: "měna"
+  
+  # Optional fields
+  account: "číslo účtu"
+  balance: "zůstatek"
+  counterparty_account: "číslo protiúčtu"
+  counterparty_bank: "kód banky protiúčtu"
+  counterparty_name: "jméno protistrany"
+  transaction_type: "označení operace"
+  variable_symbol: "variabilní symbol"
+  constant_symbol: "konstantní symbol"
+  specific_symbol: "specifický symbol"
+  transaction_id: "ID transakce"
+  
+  # Category from ČSOB
+  category_source: "kategorie"
+  
+  # Defaults (when column doesn't exist)
+  defaults:
+    institution: "ČSOB"
+
+transformations:
+  date:
+    format: "%d.%m.%Y"  # 31.10.2025
+    
+  amount:
+    # ČSOB uses comma as decimal separator
+    decimal_separator: ","
+    # Thousands separator is space or nothing
+    thousands_separator: " "
+    # Negative numbers already have minus sign
+    reverse_sign: false
+    
+  description:
+    strip_whitespace: true
+    # Clean up common patterns
+    remove_patterns:
+      - "^Částka: [\\d,.]+ CZK \\d{2}\\.\\d{2}\\.\\d{4} "
+      - "Místo: "
+      
+filtering:
+  # Skip header row with account summary
+  skip_if_contains:
+    - "Pohyby na účtu"
+
+owner_detection:
+  method: "account_mapping"
+  # Map account numbers to owners (update with your accounts)
+  account_mapping:
+    "283337817/0300": "Branislav"  # Credit card
+    "210621040/0300": "Branislav"  # Main account
+  
+  # Fallback if account not in mapping
+  default_owner: "Unknown"
+
+category_mapping:
+  # Map ČSOB categories to standardized categories
+  "Restaurace": "Dining"
+  "Potraviny": "Groceries"
+  "Doprava": "Transport"
+  "Volný čas a zábava": "Entertainment"
+  "Nákupy a služby": "Shopping"
+  "TV, internet, telefon": "Utilities"
+  "Splátky": "Payments"
+  "Příjem": "Income"
+  "Bankovní transakce": "Transfer"
+  "Odchozí nezatříděná": "Uncategorized"
+  "Příchozí nezatříděná": "Uncategorized"
+
+notes: |
+  ČSOB exports have:
+  - BOM (Byte Order Mark) at start - handled by utf-8-sig encoding
+  - First row: account summary line (skip)
+  - Second row: empty (skip)
+  - Third row: headers
+  - Semicolon delimiter
+  - Comma decimal separator with space as thousands separator
+  - Rich transaction details in "zpráva" field
+  - Pre-categorized transactions
+  - Both debit and credit on same account

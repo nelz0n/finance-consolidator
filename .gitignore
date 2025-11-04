@@ -47,3 +47,5 @@ htmlcov/
 *.bak
 *.backup
 ~$*
+
+nul

@@ -5,7 +5,7 @@ google_drive:
   # Folder ID where input CSV/XLSX files are stored
   # To find: Open folder in Google Drive, look at URL
   # https://drive.google.com/drive/folders/YOUR_FOLDER_ID
-  input_folder_id: "YOUR_INPUT_FOLDER_ID"
+  input_folder_id: "1CrtDt9JR9pNrE4I9HKxjnVxrb9Eh9E5b"
   
   # Credentials file location (relative to project root)
   credentials_path: "data/credentials/google_credentials.json"
@@ -18,7 +18,7 @@ google_sheets:
   # Master spreadsheet ID
   # To find: Open sheet in Google Sheets, look at URL
   # https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit
-  master_sheet_id: "YOUR_MASTER_SHEET_ID"
+  master_sheet_id: "10H6uDqvYs2iBpwBDxH-zEfSrSMAq6J5JbjKVR5NkG_w"
   
   # Tab names in the master sheet
   transactions_tab: "Transactions"
@@ -30,7 +30,7 @@ google_sheets:
 # Currency Configuration
 currency:
   # Base currency for normalization
-  base_currency: "EUR"
+  base_currency: "CZK"
   
   # Supported currencies
   supported:

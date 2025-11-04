@@ -71,8 +71,9 @@ owner_detection:
   method: "account_mapping"
   # Map account numbers to owners (update with your accounts)
   account_mapping:
-    "283337817/0300": "Branislav"  # Credit card
-    "210621040/0300": "Branislav"  # Main account
+    "283337817/0300": "Spolocne"  # Credit card
+    "210621040/0300": "Brano"  # Main account
+    "243160770/0300": "Mirka"  # Mirka account
   
   # Fallback if account not in mapping
   default_owner: "Unknown"

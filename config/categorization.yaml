@@ -1,0 +1,813 @@
+# Categorization Configuration
+# 3-Tier Category System with Manual Rules, Internal Transfer Detection, and AI Fallback
+
+# ============================================================================
+# INTERNAL TRANSFER DETECTION
+# ============================================================================
+internal_transfers:
+  # List all your own account numbers
+  own_accounts:
+    - "283337817/0300"  # ČSOB Credit Card - Spolocne
+    - "210621040/0300"  # ČSOB Main - Brano
+    - "243160770/0300"  # ČSOB - Mirka
+    - "3581422554"      # Partners Bank
+    - "1330299329"      # Partners Bank
+    - "2106210400"      # Partners Bank
+
+  # Detection methods (applied in order)
+  detection_methods:
+    # Method 1: Counterparty account in own accounts
+    - type: "counterparty_in_own_accounts"
+      enabled: true
+
+    # Method 2: Description keywords
+    - type: "description_keywords"
+      enabled: true
+      keywords:
+        - "PŘEVOD"
+        - "PREVOD"
+        - "TRANSFER"
+        - "INTERNAL"
+        - "MEZI ÚČTY"
+        - "MEZI UCTY"
+
+    # Method 3: Same-day opposite amount (advanced)
+    - type: "same_day_opposite_amount"
+      enabled: true
+      tolerance_czk: 1.0  # Allow 1 CZK difference
+      time_window_hours: 24
+
+  # Category for detected internal transfers
+  category:
+    tier1: "Transfers"
+    tier2: "Internal Transfer"
+    tier3: "Between Own Accounts"
+
+  # Exclude from expense reports
+  exclude_from_expenses: true
+
+# ============================================================================
+# 3-TIER CATEGORY TREE
+# Comprehensive categorization covering Czech household spending
+# ============================================================================
+category_tree:
+  # TIER 1: Income
+  - tier1: "Income"
+    tier2_categories:
+      - tier2: "Salary & Wages"
+        tier3:
+          - "Salary"
+          - "Bonus"
+          - "Commission"
+          - "Overtime Pay"
+
+      - tier2: "Business Income"
+        tier3:
+          - "Freelance Income"
+          - "Contract Work"
+          - "Business Revenue"
+
+      - tier2: "Investment Income"
+        tier3:
+          - "Dividends"
+          - "Interest"
+          - "Capital Gains"
+          - "Rental Income"
+
+      - tier2: "Government Benefits"
+        tier3:
+          - "Social Security"
+          - "Unemployment Benefits"
+          - "Child Benefits"
+          - "Parental Leave"
+
+      - tier2: "Other Income"
+        tier3:
+          - "Gift Received"
+          - "Tax Refund"
+          - "Cashback & Rewards"
+          - "Miscellaneous Income"
+
+  # TIER 1: Living Expenses
+  - tier1: "Living Expenses"
+    tier2_categories:
+      - tier2: "Housing"
+        tier3:
+          - "Rent"
+          - "Mortgage Payment"
+          - "Property Tax"
+          - "HOA Fees"
+          - "Home Insurance"
+          - "Home Maintenance"
+          - "Home Repairs"
+          - "Furniture"
+          - "Home Decor"
+
+      - tier2: "Utilities"
+        tier3:
+          - "Electricity"
+          - "Gas"
+          - "Water & Sewage"
+          - "Heating"
+          - "Trash & Recycling"
+          - "Internet"
+          - "Phone - Mobile"
+          - "Phone - Landline"
+          - "TV & Streaming"
+
+      - tier2: "Groceries"
+        tier3:
+          - "Supermarket"
+          - "Farmers Market"
+          - "Butcher"
+          - "Bakery"
+          - "Online Grocery"
+          - "Specialty Foods"
+
+      - tier2: "Dining Out"
+        tier3:
+          - "Restaurant"
+          - "Fast Food"
+          - "Cafe"
+          - "Bar & Pub"
+          - "Food Delivery"
+          - "Work Lunch"
+
+      - tier2: "Transportation"
+        tier3:
+          - "Fuel - Car"
+          - "Public Transport"
+          - "Taxi & Uber"
+          - "Car Payment"
+          - "Car Insurance"
+          - "Car Maintenance"
+          - "Car Repairs"
+          - "Car Registration"
+          - "Parking"
+          - "Tolls"
+          - "Car Wash"
+
+      - tier2: "Healthcare"
+        tier3:
+          - "Doctor Visit"
+          - "Dentist"
+          - "Pharmacy"
+          - "Medical Tests"
+          - "Hospital"
+          - "Health Insurance"
+          - "Vision Care"
+          - "Mental Health"
+          - "Alternative Medicine"
+          - "Medical Equipment"
+
+      - tier2: "Personal Care"
+        tier3:
+          - "Haircut & Salon"
+          - "Cosmetics"
+          - "Toiletries"
+          - "Gym & Fitness"
+          - "Spa & Wellness"
+
+  # TIER 1: Discretionary
+  - tier1: "Discretionary"
+    tier2_categories:
+      - tier2: "Shopping"
+        tier3:
+          - "Clothing"
+          - "Shoes"
+          - "Accessories"
+          - "Electronics"
+          - "Books"
+          - "Gifts"
+          - "Hobbies"
+          - "Sports Equipment"
+          - "Online Shopping"
+
+      - tier2: "Entertainment"
+        tier3:
+          - "Movies & Cinema"
+          - "Concerts"
+          - "Theater & Shows"
+          - "Sporting Events"
+          - "Museums & Exhibitions"
+          - "Amusement Parks"
+          - "Gaming"
+          - "Music & Apps"
+
+      - tier2: "Travel & Vacation"
+        tier3:
+          - "Flights"
+          - "Hotels"
+          - "Airbnb & Rentals"
+          - "Travel Activities"
+          - "Travel Food"
+          - "Travel Shopping"
+          - "Travel Insurance"
+          - "Visa & Fees"
+
+      - tier2: "Hobbies & Recreation"
+        tier3:
+          - "Sports & Fitness"
+          - "Photography"
+          - "Music Lessons"
+          - "Art & Crafts"
+          - "Gardening"
+          - "Pet Care"
+          - "Pet Food"
+          - "Vet"
+
+  # TIER 1: Family & Children
+  - tier1: "Family & Children"
+    tier2_categories:
+      - tier2: "Childcare"
+        tier3:
+          - "Daycare"
+          - "Babysitter"
+          - "Nanny"
+          - "After School Care"
+
+      - tier2: "Education"
+        tier3:
+          - "Tuition"
+          - "School Supplies"
+          - "Textbooks"
+          - "School Activities"
+          - "Private Lessons"
+          - "Online Courses"
+
+      - tier2: "Children's Activities"
+        tier3:
+          - "Sports Clubs"
+          - "Music Lessons"
+          - "Dance Lessons"
+          - "Summer Camp"
+          - "Children's Parties"
+
+      - tier2: "Children's Needs"
+        tier3:
+          - "Clothing - Kids"
+          - "Toys"
+          - "Diapers & Baby Care"
+          - "Children's Healthcare"
+
+  # TIER 1: Financial
+  - tier1: "Financial"
+    tier2_categories:
+      - tier2: "Savings"
+        tier3:
+          - "Emergency Fund"
+          - "General Savings"
+          - "Vacation Fund"
+          - "House Down Payment"
+
+      - tier2: "Investments"
+        tier3:
+          - "Stocks"
+          - "Bonds"
+          - "Mutual Funds"
+          - "Crypto"
+          - "Real Estate Investment"
+          - "Retirement Account"
+
+      - tier2: "Debt Payments"
+        tier3:
+          - "Credit Card Payment"
+          - "Personal Loan"
+          - "Student Loan"
+          - "Car Loan"
+          - "Mortgage Principal"
+
+      - tier2: "Insurance"
+        tier3:
+          - "Life Insurance"
+          - "Disability Insurance"
+          - "Umbrella Insurance"
+
+      - tier2: "Bank Fees"
+        tier3:
+          - "Account Fee"
+          - "ATM Fee"
+          - "Wire Transfer Fee"
+          - "Foreign Transaction Fee"
+          - "Overdraft Fee"
+
+  # TIER 1: Business Expenses (if self-employed)
+  - tier1: "Business Expenses"
+    tier2_categories:
+      - tier2: "Office Expenses"
+        tier3:
+          - "Office Supplies"
+          - "Software & Subscriptions"
+          - "Office Rent"
+          - "Coworking Space"
+
+      - tier2: "Business Services"
+        tier3:
+          - "Accounting & Bookkeeping"
+          - "Legal Services"
+          - "Consulting"
+          - "Marketing & Advertising"
+
+      - tier2: "Business Travel"
+        tier3:
+          - "Business Flights"
+          - "Business Hotels"
+          - "Business Meals"
+          - "Client Entertainment"
+
+  # TIER 1: Taxes
+  - tier1: "Taxes"
+    tier2_categories:
+      - tier2: "Income Tax"
+        tier3:
+          - "Federal Income Tax"
+          - "State/Local Tax"
+          - "Estimated Tax Payment"
+
+      - tier2: "Other Taxes"
+        tier3:
+          - "Property Tax"
+          - "Sales Tax"
+          - "Self-Employment Tax"
+
+  # TIER 1: Transfers
+  - tier1: "Transfers"
+    tier2_categories:
+      - tier2: "Internal Transfer"
+        tier3:
+          - "Between Own Accounts"
+          - "Savings Transfer"
+          - "Credit Card Payment"
+
+      - tier2: "External Transfer"
+        tier3:
+          - "Transfer to Friend/Family"
+          - "International Transfer"
+          - "PayPal Transfer"
+          - "Wise Transfer"
+
+      - tier2: "Cash Withdrawal"
+        tier3:
+          - "ATM Withdrawal"
+          - "Bank Counter Withdrawal"
+
+  # TIER 1: Uncategorized
+  - tier1: "Uncategorized"
+    tier2_categories:
+      - tier2: "Needs Review"
+        tier3:
+          - "Unknown Transaction"
+          - "Pending Categorization"
+
+# ============================================================================
+# MANUAL CATEGORIZATION RULES
+# Rules are applied in order - first match wins
+# ============================================================================
+manual_rules:
+  # ==================== GROCERIES ====================
+  - name: "Albert Supermarket"
+    priority: 100
+    match:
+      type: "contains"
+      field: "counterparty_name"
+      value: "ALBERT"
+    category:
+      tier1: "Living Expenses"
+      tier2: "Groceries"
+      tier3: "Supermarket"
+
+  - name: "Tesco"
+    priority: 100
+    match:
+      type: "contains"
+      field: "counterparty_name"
+      value: "TESCO"
+    category:
+      tier1: "Living Expenses"
+      tier2: "Groceries"
+      tier3: "Supermarket"
+
+  - name: "Lidl"
+    priority: 100
+    match:
+      type: "contains"
+      field: "counterparty_name"
+      value: "LIDL"
+    category:
+      tier1: "Living Expenses"
+      tier2: "Groceries"
+      tier3: "Supermarket"
+
+  - name: "Kaufland"
+    priority: 100
+    match:
+      type: "contains"
+      field: "counterparty_name"
+      value: "KAUFLAND"
+    category:
+      tier1: "Living Expenses"
+      tier2: "Groceries"
+      tier3: "Supermarket"
+
+  - name: "Billa"
+    priority: 100
+    match:
+      type: "contains"
+      field: "counterparty_name"
+      value: "BILLA"
+    category:
+      tier1: "Living Expenses"
+      tier2: "Groceries"
+      tier3: "Supermarket"
+
+  - name: "Penny Market"
+    priority: 100
+    match:
+      type: "contains"
+      field: "counterparty_name"
+      value: "PENNY"
+    category:
+      tier1: "Living Expenses"
+      tier2: "Groceries"
+      tier3: "Supermarket"
+
+  - name: "DM Drogerie"
+    priority: 100
+    match:
+      type: "contains"
+      field: "counterparty_name"
+      value: "DM DROGERIE"
+    category:
+      tier1: "Living Expenses"
+      tier2: "Personal Care"
+      tier3: "Toiletries"
+
+  # ==================== FUEL ====================
+  - name: "Shell Gas Station"
+    priority: 100
+    match:
+      type: "contains"
+      field: "description"
+      value: "SHELL"
+    category:
+      tier1: "Living Expenses"
+      tier2: "Transportation"
+      tier3: "Fuel - Car"
+
+  - name: "OMV Gas Station"
+    priority: 100
+    match:
+      type: "contains"
+      field: "counterparty_name"
+      value: "OMV"
+    category:
+      tier1: "Living Expenses"
+      tier2: "Transportation"
+      tier3: "Fuel - Car"
+
+  - name: "Benzina Gas Station"
+    priority: 100
+    match:
+      type: "contains"
+      field: "counterparty_name"
+      value: "BENZINA"
+    category:
+      tier1: "Living Expenses"
+      tier2: "Transportation"
+      tier3: "Fuel - Car"
+
+  - name: "MOL Gas Station"
+    priority: 100
+    match:
+      type: "contains"
+      field: "counterparty_name"
+      value: "MOL "
+    category:
+      tier1: "Living Expenses"
+      tier2: "Transportation"
+      tier3: "Fuel - Car"
+
+  # ==================== DINING OUT ====================
+  - name: "McDonald's"
+    priority: 100
+    match:
+      type: "contains"
+      field: "counterparty_name"
+      value: "MCDONALD"
+    category:
+      tier1: "Living Expenses"
+      tier2: "Dining Out"
+      tier3: "Fast Food"
+
+  - name: "KFC"
+    priority: 100
+    match:
+      type: "contains"
+      field: "counterparty_name"
+      value: "KFC"
+    category:
+      tier1: "Living Expenses"
+      tier2: "Dining Out"
+      tier3: "Fast Food"
+
+  - name: "Starbucks"
+    priority: 100
+    match:
+      type: "contains"
+      field: "counterparty_name"
+      value: "STARBUCKS"
+    category:
+      tier1: "Living Expenses"
+      tier2: "Dining Out"
+      tier3: "Cafe"
+
+  - name: "Costa Coffee"
+    priority: 100
+    match:
+      type: "contains"
+      field: "counterparty_name"
+      value: "COSTA"
+    category:
+      tier1: "Living Expenses"
+      tier2: "Dining Out"
+      tier3: "Cafe"
+
+  # ==================== UTILITIES ====================
+  - name: "CEZ Electricity"
+    priority: 100
+    match:
+      type: "contains"
+      field: "counterparty_name"
+      value: "CEZ"
+    category:
+      tier1: "Living Expenses"
+      tier2: "Utilities"
+      tier3: "Electricity"
+
+  - name: "PRE Electricity"
+    priority: 100
+    match:
+      type: "contains"
+      field: "counterparty_name"
+      value: "PRE"
+    category:
+      tier1: "Living Expenses"
+      tier2: "Utilities"
+      tier3: "Electricity"
+
+  - name: "O2 Mobile"
+    priority: 100
+    match:
+      type: "contains"
+      field: "counterparty_name"
+      value: "O2"
+    category:
+      tier1: "Living Expenses"
+      tier2: "Utilities"
+      tier3: "Phone - Mobile"
+
+  - name: "T-Mobile"
+    priority: 100
+    match:
+      type: "contains"
+      field: "counterparty_name"
+      value: "T-MOBILE"
+    category:
+      tier1: "Living Expenses"
+      tier2: "Utilities"
+      tier3: "Phone - Mobile"
+
+  - name: "Vodafone"
+    priority: 100
+    match:
+      type: "contains"
+      field: "counterparty_name"
+      value: "VODAFONE"
+    category:
+      tier1: "Living Expenses"
+      tier2: "Utilities"
+      tier3: "Phone - Mobile"
+
+  # ==================== TRANSPORT ====================
+  - name: "DPP Prague Transport"
+    priority: 100
+    match:
+      type: "contains"
+      field: "counterparty_name"
+      value: "DPP"
+    category:
+      tier1: "Living Expenses"
+      tier2: "Transportation"
+      tier3: "Public Transport"
+
+  - name: "Czech Railways"
+    priority: 100
+    match:
+      type: "contains"
+      field: "counterparty_name"
+      value: "CESKE DRAHY"
+    category:
+      tier1: "Living Expenses"
+      tier2: "Transportation"
+      tier3: "Public Transport"
+
+  - name: "RegioJet"
+    priority: 100
+    match:
+      type: "contains"
+      field: "counterparty_name"
+      value: "REGIOJET"
+    category:
+      tier1: "Living Expenses"
+      tier2: "Transportation"
+      tier3: "Public Transport"
+
+  - name: "Bolt Taxi"
+    priority: 100
+    match:
+      type: "contains"
+      field: "counterparty_name"
+      value: "BOLT"
+    category:
+      tier1: "Living Expenses"
+      tier2: "Transportation"
+      tier3: "Taxi & Uber"
+
+  - name: "Uber"
+    priority: 100
+    match:
+      type: "contains"
+      field: "counterparty_name"
+      value: "UBER"
+    category:
+      tier1: "Living Expenses"
+      tier2: "Transportation"
+      tier3: "Taxi & Uber"
+
+  # ==================== ATM / CASH ====================
+  - name: "ATM Withdrawal"
+    priority: 100
+    match:
+      type: "regex"
+      field: "description"
+      pattern: "^ATM|BANKOMAT|CASH WITHDRAWAL"
+    category:
+      tier1: "Transfers"
+      tier2: "Cash Withdrawal"
+      tier3: "ATM Withdrawal"
+
+  # ==================== ONLINE SERVICES ====================
+  - name: "Netflix"
+    priority: 100
+    match:
+      type: "contains"
+      field: "description"
+      value: "NETFLIX"
+    category:
+      tier1: "Living Expenses"
+      tier2: "Utilities"
+      tier3: "TV & Streaming"
+
+  - name: "Spotify"
+    priority: 100
+    match:
+      type: "contains"
+      field: "description"
+      value: "SPOTIFY"
+    category:
+      tier1: "Discretionary"
+      tier2: "Entertainment"
+      tier3: "Music & Apps"
+
+  - name: "Amazon"
+    priority: 100
+    match:
+      type: "contains"
+      field: "counterparty_name"
+      value: "AMAZON"
+    category:
+      tier1: "Discretionary"
+      tier2: "Shopping"
+      tier3: "Online Shopping"
+
+  # ==================== PHARMACY ====================
+  - name: "Dr. Max Pharmacy"
+    priority: 100
+    match:
+      type: "contains"
+      field: "counterparty_name"
+      value: "DR.MAX"
+    category:
+      tier1: "Living Expenses"
+      tier2: "Healthcare"
+      tier3: "Pharmacy"
+
+  - name: "Benu Pharmacy"
+    priority: 100
+    match:
+      type: "contains"
+      field: "counterparty_name"
+      value: "BENU"
+    category:
+      tier1: "Living Expenses"
+      tier2: "Healthcare"
+      tier3: "Pharmacy"
+
+  # ==================== INSURANCE ====================
+  - name: "Kooperativa Insurance"
+    priority: 100
+    match:
+      type: "contains"
+      field: "counterparty_name"
+      value: "KOOPERATIVA"
+    category:
+      tier1: "Financial"
+      tier2: "Insurance"
+      tier3: "Life Insurance"
+
+  - name: "CSOB Insurance"
+    priority: 100
+    match:
+      type: "contains"
+      field: "counterparty_name"
+      value: "CSOB POJISTOVNA"
+    category:
+      tier1: "Living Expenses"
+      tier2: "Housing"
+      tier3: "Home Insurance"
+
+  # ==================== BANK FEES ====================
+  - name: "Bank Fee"
+    priority: 100
+    match:
+      type: "contains"
+      field: "description"
+      value: "POPLATEK"
+    category:
+      tier1: "Financial"
+      tier2: "Bank Fees"
+      tier3: "Account Fee"
+
+# ============================================================================
+# AI FALLBACK CONFIGURATION (Gemini Flash)
+# ============================================================================
+ai_fallback:
+  enabled: true
+  provider: "gemini"
+  model: "gemini-1.5-flash"
+
+  # API Configuration
+  api_key_env: "GEMINI_API_KEY"  # Read from environment variable
+  api_url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+
+  # Behavior
+  confidence_threshold: 75  # Only accept if AI is >75% confident
+  cache_results: true
+  cache_file: "data/cache/ai_category_cache.json"
+
+  # Rate limiting (Gemini free tier: 15 req/min, 1500/day)
+  rate_limit:
+    requests_per_minute: 10  # Conservative
+    requests_per_day: 1000
+
+  # Prompt template
+  prompt_template: |
+    You are a financial transaction categorizer for Czech household expenses.
+
+    Categorize this transaction into exactly 3 tiers from the provided category tree.
+
+    Transaction details:
+    - Date: {date}
+    - Amount: {amount} {currency}
+    - Description: {description}
+    - Counterparty: {counterparty_name}
+    - Counterparty Account: {counterparty_account}
+
+    Available categories (use EXACTLY these, do not invent new ones):
+    {category_tree_summary}
+
+    Respond ONLY in this exact format:
+    Tier1: [exact tier1 name]
+    Tier2: [exact tier2 name]
+    Tier3: [exact tier3 name]
+    Confidence: [0-100]
+    Reasoning: [brief explanation]
+
+    Be conservative - if unsure, use "Uncategorized" > "Needs Review" > "Unknown Transaction" with low confidence.
+
+# ============================================================================
+# LEARNING SYSTEM (Build patterns over time)
+# ============================================================================
+learning:
+  enabled: true
+
+  # After N transactions with same pattern, auto-create rule
+  pattern_threshold: 3
+
+  # Patterns to learn
+  learn_from:
+    - ai_categorizations
+    - manual_corrections
+
+  # Auto-generated rules file
+  learned_rules_file: "data/cache/learned_rules.yaml"

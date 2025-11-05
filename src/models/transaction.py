@@ -9,18 +9,29 @@ from decimal import Decimal
 @dataclass
 class Transaction:
     """Represents a financial transaction."""
-    
+
     # Core fields
     date: datetime
     description: str
     amount: Decimal
     currency: str
-    
-    # Normalized amount
-    amount_eur: Optional[Decimal] = None
-    
-    # Classification
+
+    # Normalized amount (in CZK)
+    amount_czk: Optional[Decimal] = None
+
+    # 3-Tier Categorization
+    category_tier1: Optional[str] = None  # High level (e.g., "Living Expenses")
+    category_tier2: Optional[str] = None  # Medium level (e.g., "Groceries")
+    category_tier3: Optional[str] = None  # Detailed level (e.g., "Supermarket")
+
+    # Legacy category field (for backward compatibility)
+    # Will be set to tier3 or concatenated version
     category: Optional[str] = None
+
+    # Internal transfer flag
+    is_internal_transfer: Optional[bool] = False
+
+    # Classification
     account: Optional[str] = None
     institution: Optional[str] = None
     owner: Optional[str] = None
@@ -50,8 +61,12 @@ class Transaction:
             'description': self.description,
             'amount': float(self.amount) if self.amount else None,
             'currency': self.currency,
-            'amount_eur': float(self.amount_eur) if self.amount_eur else None,
-            'category': self.category,
+            'amount_czk': float(self.amount_czk) if self.amount_czk else None,
+            'category_tier1': self.category_tier1,
+            'category_tier2': self.category_tier2,
+            'category_tier3': self.category_tier3,
+            'category': self.category,  # Legacy field
+            'is_internal_transfer': self.is_internal_transfer,
             'account': self.account,
             'institution': self.institution,
             'owner': self.owner,
@@ -78,8 +93,12 @@ class Transaction:
             'description',
             'amount',
             'currency',
-            'amount_eur',
-            'category',
+            'amount_czk',
+            'category_tier1',
+            'category_tier2',
+            'category_tier3',
+            'category',  # Legacy field
+            'is_internal_transfer',
             'account',
             'institution',
             'owner',

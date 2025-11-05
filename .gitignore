@@ -49,3 +49,6 @@ htmlcov/
 ~$*
 
 nul
+
+.gemini/
+gha-creds-*.json

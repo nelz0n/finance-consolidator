@@ -31,23 +31,29 @@ google_sheets:
 currency:
   # Base currency for normalization
   base_currency: "CZK"
-  
+
+  # Use CNB (Czech National Bank) API for real-time exchange rates
+  use_cnb_api: true  # Set to false to use static rates below
+
   # Supported currencies
   supported:
     - "EUR"
     - "CZK"
-  
-  # Exchange rates (static for now)
-  # TODO: Add API integration for dynamic rates
+    - "USD"
+    - "GBP"
+
+  # Static exchange rates (fallback if CNB API fails)
+  # These are approximate and should be updated regularly if not using API
   rates:
-    CZK: 25.0  # 1 EUR = 25 CZK (approximate)
-    EUR: 1.0
-  
-  # Exchange rate API (optional, not yet implemented)
-  api:
-    enabled: false
-    provider: "exchangerate-api"  # or "ecb", "fixer"
-    api_key: null
+    CZK: 1.0   # Base currency
+    EUR: 24.5  # 1 EUR ≈ 24.5 CZK
+    USD: 22.8  # 1 USD ≈ 22.8 CZK
+    GBP: 28.5  # 1 GBP ≈ 28.5 CZK
+
+  # CNB API Configuration
+  cnb_api:
+    cache_dir: "data/cache"  # Directory to cache CNB rates
+    # CNB updates daily around 2:30 PM CET
 
 # Processing Configuration
 processing:

@@ -10,9 +10,22 @@ internal_transfers:
     - "283337817/0300"  # ČSOB Credit Card - Spolocne
     - "210621040/0300"  # ČSOB Main - Brano
     - "243160770/0300"  # ČSOB - Mirka
-    - "3581422554"      # Partners Bank
-    - "1330299329"      # Partners Bank
-    - "2106210400"      # Partners Bank
+    - "3581422554/6363" # Partners Bank
+    - "1330299329/6363" # Partners Bank
+    - "2106210400/6363" # Partners Bank
+
+  # Exclusions: Do NOT mark as internal transfer if any of these conditions match
+  exclusions:
+    # Exclude specific counterparty names (e.g., platform rewards, bank-generated transactions)
+    counterparty_names:
+      - "TransferWise"  # Wise cashback/rewards
+      - "Wise"
+      - "Amazon"  # Amazon refunds
+
+    # Exclude specific transaction types (e.g., interest is income, not transfer)
+    transaction_types:
+      - "Úroky"  # Interest (Partners Bank)
+      - "Daň z úroku"  # Interest tax (Partners Bank)
 
   # Detection methods (applied in order)
   detection_methods:
@@ -22,7 +35,7 @@ internal_transfers:
 
     # Method 2: Description keywords
     - type: "description_keywords"
-      enabled: true
+      enabled: false
       keywords:
         - "PŘEVOD"
         - "PREVOD"
@@ -39,325 +52,210 @@ internal_transfers:
 
   # Category for detected internal transfers
   category:
-    tier1: "Transfers"
-    tier2: "Internal Transfer"
-    tier3: "Between Own Accounts"
+    tier1: "Presuny (Neutrálne)"
+    tier2: "Interné presuny"
+    tier3: "Medzi vlastnými účtami"
 
   # Exclude from expense reports
   exclude_from_expenses: true
 
 # ============================================================================
 # 3-TIER CATEGORY TREE
-# Comprehensive categorization covering Czech household spending
+# Slovak language categories for household budgeting
 # ============================================================================
 category_tree:
-  # TIER 1: Income
-  - tier1: "Income"
+  # TIER 1: Príjmy (Income)
+  - tier1: "Príjmy"
     tier2_categories:
-      - tier2: "Salary & Wages"
+      - tier2: "Zamestnanie"
         tier3:
-          - "Salary"
-          - "Bonus"
-          - "Commission"
-          - "Overtime Pay"
+          - "Mzda"
+          - "Bonusy"
 
-      - tier2: "Business Income"
+      - tier2: "Podnikanie"
         tier3:
-          - "Freelance Income"
-          - "Contract Work"
-          - "Business Revenue"
+          - "Fakturácia(Príjem)"
 
-      - tier2: "Investment Income"
+      - tier2: "Prenájom"
         tier3:
-          - "Dividends"
-          - "Interest"
-          - "Capital Gains"
-          - "Rental Income"
+          - "Nájomné (Príjem)"
 
-      - tier2: "Government Benefits"
+      - tier2: "Investície"
         tier3:
-          - "Social Security"
-          - "Unemployment Benefits"
-          - "Child Benefits"
-          - "Parental Leave"
+          - "Dividendy"
+          - "Úroky"
+          - "Predaj aktív (Zisk)"
 
-      - tier2: "Other Income"
+      - tier2: "Ostatné príjmy"
         tier3:
-          - "Gift Received"
-          - "Tax Refund"
-          - "Cashback & Rewards"
-          - "Miscellaneous Income"
+          - "Dary (Prijaté)"
+          - "Cashback"
+          - "Vratka dane"
+          - "Predaj vecí"
+          - "Rôzne"
 
-  # TIER 1: Living Expenses
-  - tier1: "Living Expenses"
+  # TIER 1: Spotreba Rodina (Family Consumption)
+  - tier1: "Spotreba Rodina"
     tier2_categories:
-      - tier2: "Housing"
+      - tier2: "Bývanie"
         tier3:
-          - "Rent"
-          - "Mortgage Payment"
-          - "Property Tax"
-          - "HOA Fees"
-          - "Home Insurance"
-          - "Home Maintenance"
-          - "Home Repairs"
-          - "Furniture"
-          - "Home Decor"
+          - "Hypotéka / Nájom"
+          - "Poistenie domácnosti"
+          - "Údržba a opravy (doma)"
+          - "Nábytok"
+          - "Vybavenie"
 
-      - tier2: "Utilities"
+      - tier2: "Energie a Služby"
         tier3:
-          - "Electricity"
-          - "Gas"
-          - "Water & Sewage"
-          - "Heating"
-          - "Trash & Recycling"
+          - "Elektrina"
+          - "Poplatky (Bývanie)"
           - "Internet"
-          - "Phone - Mobile"
-          - "Phone - Landline"
-          - "TV & Streaming"
+          - "Telefón"
+          - "Subscriptions"
 
-      - tier2: "Groceries"
+      - tier2: "Jedlo"
         tier3:
           - "Supermarket"
-          - "Farmers Market"
-          - "Butcher"
-          - "Bakery"
-          - "Online Grocery"
-          - "Specialty Foods"
+          - "Drogéria"
+          - "Trhy / Lokálne potraviny"
+          - "Reštaurácie"
+          - "Kaviarne"
+          - "Donáška jedla"
+          - "Obedy v práci"
 
-      - tier2: "Dining Out"
+      - tier2: "Doprava (Osobná)"
         tier3:
-          - "Restaurant"
-          - "Fast Food"
-          - "Cafe"
-          - "Bar & Pub"
-          - "Food Delivery"
-          - "Work Lunch"
+          - "PHM (Osobné auto)"
+          - "Poistenie auta"
+          - "Servis a Údržba auta"
+          - "Diaľničná známka"
+          - "Parkovanie"
+          - "MHD"
+          - "Taxi"
+          - "Leasing"
 
-      - tier2: "Transportation"
+      - tier2: "Deti (Oliver & Alex)"
         tier3:
-          - "Fuel - Car"
-          - "Public Transport"
-          - "Taxi & Uber"
-          - "Car Payment"
-          - "Car Insurance"
-          - "Car Maintenance"
-          - "Car Repairs"
-          - "Car Registration"
-          - "Parking"
-          - "Tolls"
-          - "Car Wash"
+          - "Škola / Škôlka (Poplatky)"
+          - "Školské obedy"
+          - "Opatrovanie"
+          - "Krúžky"
+          - "Tábory"
+          - "Školské potreby"
+          - "Oblečenie (Deti)"
+          - "Hračky a Knihy"
+          - "Vreckové"
 
-      - tier2: "Healthcare"
+      - tier2: "Zdravie a Starostlivosť"
         tier3:
-          - "Doctor Visit"
-          - "Dentist"
-          - "Pharmacy"
-          - "Medical Tests"
-          - "Hospital"
-          - "Health Insurance"
-          - "Vision Care"
-          - "Mental Health"
-          - "Alternative Medicine"
-          - "Medical Equipment"
+          - "Lekár / Poplatky"
+          - "Zubár"
+          - "Lekáreň / Vitamíny"
+          - "Optika"
+          - "Kaderník / Holič"
+          - "Kozmetika"
 
-      - tier2: "Personal Care"
+      - tier2: "Osobná útrata"
         tier3:
-          - "Haircut & Salon"
-          - "Cosmetics"
-          - "Toiletries"
-          - "Gym & Fitness"
-          - "Spa & Wellness"
+          - "Oblečenie (Dospelí)"
+          - "Obuv (Dospelí)"
+          - "Fitnes / Šport"
+          - "Koníčky"
+          - "Kultúra (Kino, Divadlo)"
+          - "Knihy / Tlač"
+          - "Aplikácie a Hry"
 
-  # TIER 1: Discretionary
-  - tier1: "Discretionary"
+      - tier2: "Dovolenka a Cestovanie"
+        tier3:
+          - "Ubytovanie"
+          - "Letenky / Doprava"
+          - "Cestovné poistenie"
+          - "Jedlo (Dovolenka)"
+          - "Aktivity (Dovolenka)"
+
+      - tier2: "Ostatné (Rodina)"
+        tier3:
+          - "Dary (ktoré dávame)"
+          - "Životné poistenie"
+          - "Bankové poplatky (osobné)"
+          - "Charita"
+          - "Domáci miláčikovia"
+          - "Rôzne"
+
+  # TIER 1: Podnikanie (IČO) (Business)
+  - tier1: "Podnikanie"
     tier2_categories:
-      - tier2: "Shopping"
+      - tier2: "Odvody a Dane (IČO)"
         tier3:
-          - "Clothing"
-          - "Shoes"
-          - "Accessories"
-          - "Electronics"
-          - "Books"
-          - "Gifts"
-          - "Hobbies"
-          - "Sports Equipment"
-          - "Online Shopping"
+          - "Sociálne poistenie"
+          - "Zdravotné poistenie"
+          - "Daň z príjmu (Zálohy)"
+          - "Paušalna daň"
 
-      - tier2: "Entertainment"
+      - tier2: "Prevádzka (IČO)"
         tier3:
-          - "Movies & Cinema"
-          - "Concerts"
-          - "Theater & Shows"
-          - "Sporting Events"
-          - "Museums & Exhibitions"
-          - "Amusement Parks"
-          - "Gaming"
-          - "Music & Apps"
+          - "Účtovníctvo"
+          - "Náklady"
 
-      - tier2: "Travel & Vacation"
+      - tier2: "Cestovné a Repre (IČO)"
         tier3:
-          - "Flights"
-          - "Hotels"
-          - "Airbnb & Rentals"
-          - "Travel Activities"
-          - "Travel Food"
-          - "Travel Shopping"
-          - "Travel Insurance"
-          - "Visa & Fees"
+          - "PHM (Firemné)"
+          - "Ubytovanie (Firemné)"
+          - "Diéty"
 
-      - tier2: "Hobbies & Recreation"
-        tier3:
-          - "Sports & Fitness"
-          - "Photography"
-          - "Music Lessons"
-          - "Art & Crafts"
-          - "Gardening"
-          - "Pet Care"
-          - "Pet Food"
-          - "Vet"
-
-  # TIER 1: Family & Children
-  - tier1: "Family & Children"
+  # TIER 1: Prenájom (Náklady) (Rental Costs)
+  - tier1: "Prenájom (Náklady)"
     tier2_categories:
-      - tier2: "Childcare"
+      - tier2: "Náklady na Byt"
         tier3:
-          - "Daycare"
-          - "Babysitter"
-          - "Nanny"
-          - "After School Care"
+          - "Hypotéka (prenájom)"
+          - "Fond opráv / SVJ (prenájom)"
+          - "Platby správcovi / Energie"
+          - "Poistenie nehnuteľnosti"
+          - "Daň z nehnuteľnosti"
+          - "Daň z prenájmu"
 
-      - tier2: "Education"
+      - tier2: "Údržba Bytu"
         tier3:
-          - "Tuition"
-          - "School Supplies"
-          - "Textbooks"
-          - "School Activities"
-          - "Private Lessons"
-          - "Online Courses"
+          - "Opravy a Údržba"
+          - "Nákup vybavenia (do prenájmu)"
 
-      - tier2: "Children's Activities"
-        tier3:
-          - "Sports Clubs"
-          - "Music Lessons"
-          - "Dance Lessons"
-          - "Summer Camp"
-          - "Children's Parties"
-
-      - tier2: "Children's Needs"
-        tier3:
-          - "Clothing - Kids"
-          - "Toys"
-          - "Diapers & Baby Care"
-          - "Children's Healthcare"
-
-  # TIER 1: Financial
-  - tier1: "Financial"
+  # TIER 1: Investície a Sporenie (Investments and Savings)
+  - tier1: "Investície a Sporenie"
     tier2_categories:
-      - tier2: "Savings"
+      - tier2: "Investície (Nákup)"
         tier3:
-          - "Emergency Fund"
-          - "General Savings"
-          - "Vacation Fund"
-          - "House Down Payment"
+          - "Akcie"
+          - "ETF / Fondy"
+          - "Kryptomeny"
+          - "Dôchodkové sporenie"
 
-      - tier2: "Investments"
+      - tier2: "Sporenie (Vklady)"
         tier3:
-          - "Stocks"
-          - "Bonds"
-          - "Mutual Funds"
-          - "Crypto"
-          - "Real Estate Investment"
-          - "Retirement Account"
+          - "Sporiaci účet (Vklad)"
+          - "Stavebné sporenie (Vklad)"
 
-      - tier2: "Debt Payments"
-        tier3:
-          - "Credit Card Payment"
-          - "Personal Loan"
-          - "Student Loan"
-          - "Car Loan"
-          - "Mortgage Principal"
-
-      - tier2: "Insurance"
-        tier3:
-          - "Life Insurance"
-          - "Disability Insurance"
-          - "Umbrella Insurance"
-
-      - tier2: "Bank Fees"
-        tier3:
-          - "Account Fee"
-          - "ATM Fee"
-          - "Wire Transfer Fee"
-          - "Foreign Transaction Fee"
-          - "Overdraft Fee"
-
-  # TIER 1: Business Expenses (if self-employed)
-  - tier1: "Business Expenses"
+  # TIER 1: Presuny (Neutrálne) (Neutral Transfers)
+  - tier1: "Presuny (Neutrálne)"
     tier2_categories:
-      - tier2: "Office Expenses"
+      - tier2: "Interné presuny"
         tier3:
-          - "Office Supplies"
-          - "Software & Subscriptions"
-          - "Office Rent"
-          - "Coworking Space"
+          - "Medzi vlastnými účtami"
+          - "Výber z bankomatu"
+          - "Vklad hotovosti"
 
-      - tier2: "Business Services"
+      - tier2: "Splátky dlhov"
         tier3:
-          - "Accounting & Bookkeeping"
-          - "Legal Services"
-          - "Consulting"
-          - "Marketing & Advertising"
+          - "Splátka Kreditnej Karty"
+          - "Splátka Úveru / Pôžičky"
+          - "Splátka Auta (Leasing/Úver)"
 
-      - tier2: "Business Travel"
-        tier3:
-          - "Business Flights"
-          - "Business Hotels"
-          - "Business Meals"
-          - "Client Entertainment"
-
-  # TIER 1: Taxes
-  - tier1: "Taxes"
-    tier2_categories:
-      - tier2: "Income Tax"
-        tier3:
-          - "Federal Income Tax"
-          - "State/Local Tax"
-          - "Estimated Tax Payment"
-
-      - tier2: "Other Taxes"
-        tier3:
-          - "Property Tax"
-          - "Sales Tax"
-          - "Self-Employment Tax"
-
-  # TIER 1: Transfers
-  - tier1: "Transfers"
-    tier2_categories:
-      - tier2: "Internal Transfer"
-        tier3:
-          - "Between Own Accounts"
-          - "Savings Transfer"
-          - "Credit Card Payment"
-
-      - tier2: "External Transfer"
-        tier3:
-          - "Transfer to Friend/Family"
-          - "International Transfer"
-          - "PayPal Transfer"
-          - "Wise Transfer"
-
-      - tier2: "Cash Withdrawal"
-        tier3:
-          - "ATM Withdrawal"
-          - "Bank Counter Withdrawal"
-
-  # TIER 1: Uncategorized
+  # TIER 1: Nezaradené (Uncategorized)
   - tier1: "Uncategorized"
     tier2_categories:
       - tier2: "Needs Review"
         tier3:
           - "Unknown Transaction"
-          - "Pending Categorization"
 
 # ============================================================================
 # MANUAL CATEGORIZATION RULES
@@ -372,8 +270,8 @@ manual_rules:
       field: "counterparty_name"
       value: "ALBERT"
     category:
-      tier1: "Living Expenses"
-      tier2: "Groceries"
+      tier1: "Spotreba Rodina"
+      tier2: "Jedlo a Domácnosť"
       tier3: "Supermarket"
 
   - name: "Tesco"
@@ -383,8 +281,8 @@ manual_rules:
       field: "counterparty_name"
       value: "TESCO"
     category:
-      tier1: "Living Expenses"
-      tier2: "Groceries"
+      tier1: "Spotreba Rodina"
+      tier2: "Jedlo a Domácnosť"
       tier3: "Supermarket"
 
   - name: "Lidl"
@@ -394,8 +292,8 @@ manual_rules:
       field: "counterparty_name"
       value: "LIDL"
     category:
-      tier1: "Living Expenses"
-      tier2: "Groceries"
+      tier1: "Spotreba Rodina"
+      tier2: "Jedlo a Domácnosť"
       tier3: "Supermarket"
 
   - name: "Kaufland"
@@ -405,8 +303,8 @@ manual_rules:
       field: "counterparty_name"
       value: "KAUFLAND"
     category:
-      tier1: "Living Expenses"
-      tier2: "Groceries"
+      tier1: "Spotreba Rodina"
+      tier2: "Jedlo a Domácnosť"
       tier3: "Supermarket"
 
   - name: "Billa"
@@ -416,8 +314,8 @@ manual_rules:
       field: "counterparty_name"
       value: "BILLA"
     category:
-      tier1: "Living Expenses"
-      tier2: "Groceries"
+      tier1: "Spotreba Rodina"
+      tier2: "Jedlo a Domácnosť"
       tier3: "Supermarket"
 
   - name: "Penny Market"
@@ -427,8 +325,8 @@ manual_rules:
       field: "counterparty_name"
       value: "PENNY"
     category:
-      tier1: "Living Expenses"
-      tier2: "Groceries"
+      tier1: "Spotreba Rodina"
+      tier2: "Jedlo a Domácnosť"
       tier3: "Supermarket"
 
   - name: "DM Drogerie"
@@ -438,9 +336,9 @@ manual_rules:
       field: "counterparty_name"
       value: "DM DROGERIE"
     category:
-      tier1: "Living Expenses"
-      tier2: "Personal Care"
-      tier3: "Toiletries"
+      tier1: "Spotreba Rodina"
+      tier2: "Jedlo a Domácnosť"
+      tier3: "Drogéria"
 
   # ==================== FUEL ====================
   - name: "Shell Gas Station"
@@ -450,9 +348,9 @@ manual_rules:
       field: "description"
       value: "SHELL"
     category:
-      tier1: "Living Expenses"
-      tier2: "Transportation"
-      tier3: "Fuel - Car"
+      tier1: "Spotreba Rodina"
+      tier2: "Doprava (Osobná)"
+      tier3: "PHM (Osobné auto)"
 
   - name: "OMV Gas Station"
     priority: 100
@@ -461,9 +359,9 @@ manual_rules:
       field: "counterparty_name"
       value: "OMV"
     category:
-      tier1: "Living Expenses"
-      tier2: "Transportation"
-      tier3: "Fuel - Car"
+      tier1: "Spotreba Rodina"
+      tier2: "Doprava (Osobná)"
+      tier3: "PHM (Osobné auto)"
 
   - name: "Benzina Gas Station"
     priority: 100
@@ -472,9 +370,9 @@ manual_rules:
       field: "counterparty_name"
       value: "BENZINA"
     category:
-      tier1: "Living Expenses"
-      tier2: "Transportation"
-      tier3: "Fuel - Car"
+      tier1: "Spotreba Rodina"
+      tier2: "Doprava (Osobná)"
+      tier3: "PHM (Osobné auto)"
 
   - name: "MOL Gas Station"
     priority: 100
@@ -483,9 +381,9 @@ manual_rules:
       field: "counterparty_name"
       value: "MOL "
     category:
-      tier1: "Living Expenses"
-      tier2: "Transportation"
-      tier3: "Fuel - Car"
+      tier1: "Spotreba Rodina"
+      tier2: "Doprava (Osobná)"
+      tier3: "PHM (Osobné auto)"
 
   # ==================== DINING OUT ====================
   - name: "McDonald's"
@@ -495,9 +393,9 @@ manual_rules:
       field: "counterparty_name"
       value: "MCDONALD"
     category:
-      tier1: "Living Expenses"
-      tier2: "Dining Out"
-      tier3: "Fast Food"
+      tier1: "Spotreba Rodina"
+      tier2: "Jedlo a Domácnosť"
+      tier3: "Reštaurácie"
 
   - name: "KFC"
     priority: 100
@@ -506,9 +404,9 @@ manual_rules:
       field: "counterparty_name"
       value: "KFC"
     category:
-      tier1: "Living Expenses"
-      tier2: "Dining Out"
-      tier3: "Fast Food"
+      tier1: "Spotreba Rodina"
+      tier2: "Jedlo a Domácnosť"
+      tier3: "Reštaurácie"
 
   - name: "Starbucks"
     priority: 100
@@ -517,9 +415,9 @@ manual_rules:
       field: "counterparty_name"
       value: "STARBUCKS"
     category:
-      tier1: "Living Expenses"
-      tier2: "Dining Out"
-      tier3: "Cafe"
+      tier1: "Spotreba Rodina"
+      tier2: "Jedlo a Domácnosť"
+      tier3: "Kaviarne"
 
   - name: "Costa Coffee"
     priority: 100
@@ -528,9 +426,9 @@ manual_rules:
       field: "counterparty_name"
       value: "COSTA"
     category:
-      tier1: "Living Expenses"
-      tier2: "Dining Out"
-      tier3: "Cafe"
+      tier1: "Spotreba Rodina"
+      tier2: "Jedlo a Domácnosť"
+      tier3: "Kaviarne"
 
   # ==================== UTILITIES ====================
   - name: "CEZ Electricity"
@@ -540,9 +438,9 @@ manual_rules:
       field: "counterparty_name"
       value: "CEZ"
     category:
-      tier1: "Living Expenses"
-      tier2: "Utilities"
-      tier3: "Electricity"
+      tier1: "Spotreba Rodina"
+      tier2: "Energie a Služby"
+      tier3: "Elektrina"
 
   - name: "PRE Electricity"
     priority: 100
@@ -551,9 +449,9 @@ manual_rules:
       field: "counterparty_name"
       value: "PRE"
     category:
-      tier1: "Living Expenses"
-      tier2: "Utilities"
-      tier3: "Electricity"
+      tier1: "Spotreba Rodina"
+      tier2: "Energie a Služby"
+      tier3: "Elektrina"
 
   - name: "O2 Mobile"
     priority: 100
@@ -562,9 +460,9 @@ manual_rules:
       field: "counterparty_name"
       value: "O2"
     category:
-      tier1: "Living Expenses"
-      tier2: "Utilities"
-      tier3: "Phone - Mobile"
+      tier1: "Spotreba Rodina"
+      tier2: "Energie a Služby"
+      tier3: "Telefóny (rodina)"
 
   - name: "T-Mobile"
     priority: 100
@@ -573,9 +471,9 @@ manual_rules:
       field: "counterparty_name"
       value: "T-MOBILE"
     category:
-      tier1: "Living Expenses"
-      tier2: "Utilities"
-      tier3: "Phone - Mobile"
+      tier1: "Spotreba Rodina"
+      tier2: "Energie a Služby"
+      tier3: "Telefóny (rodina)"
 
   - name: "Vodafone"
     priority: 100
@@ -584,9 +482,9 @@ manual_rules:
       field: "counterparty_name"
       value: "VODAFONE"
     category:
-      tier1: "Living Expenses"
-      tier2: "Utilities"
-      tier3: "Phone - Mobile"
+      tier1: "Spotreba Rodina"
+      tier2: "Energie a Služby"
+      tier3: "Telefóny (rodina)"
 
   # ==================== TRANSPORT ====================
   - name: "DPP Prague Transport"
@@ -596,9 +494,9 @@ manual_rules:
       field: "counterparty_name"
       value: "DPP"
     category:
-      tier1: "Living Expenses"
-      tier2: "Transportation"
-      tier3: "Public Transport"
+      tier1: "Spotreba Rodina"
+      tier2: "Doprava (Osobná)"
+      tier3: "MHD (Lítačka)"
 
   - name: "Czech Railways"
     priority: 100
@@ -607,9 +505,9 @@ manual_rules:
       field: "counterparty_name"
       value: "CESKE DRAHY"
     category:
-      tier1: "Living Expenses"
-      tier2: "Transportation"
-      tier3: "Public Transport"
+      tier1: "Spotreba Rodina"
+      tier2: "Doprava (Osobná)"
+      tier3: "MHD (Lítačka)"
 
   - name: "RegioJet"
     priority: 100
@@ -618,9 +516,9 @@ manual_rules:
       field: "counterparty_name"
       value: "REGIOJET"
     category:
-      tier1: "Living Expenses"
-      tier2: "Transportation"
-      tier3: "Public Transport"
+      tier1: "Spotreba Rodina"
+      tier2: "Doprava (Osobná)"
+      tier3: "MHD (Lítačka)"
 
   - name: "Bolt Taxi"
     priority: 100
@@ -629,9 +527,9 @@ manual_rules:
       field: "counterparty_name"
       value: "BOLT"
     category:
-      tier1: "Living Expenses"
-      tier2: "Transportation"
-      tier3: "Taxi & Uber"
+      tier1: "Spotreba Rodina"
+      tier2: "Doprava (Osobná)"
+      tier3: "Taxi / Bolt"
 
   - name: "Uber"
     priority: 100
@@ -640,9 +538,9 @@ manual_rules:
       field: "counterparty_name"
       value: "UBER"
     category:
-      tier1: "Living Expenses"
-      tier2: "Transportation"
-      tier3: "Taxi & Uber"
+      tier1: "Spotreba Rodina"
+      tier2: "Doprava (Osobná)"
+      tier3: "Taxi / Bolt"
 
   # ==================== ATM / CASH ====================
   - name: "ATM Withdrawal"
@@ -652,9 +550,9 @@ manual_rules:
       field: "description"
       pattern: "^ATM|BANKOMAT|CASH WITHDRAWAL"
     category:
-      tier1: "Transfers"
-      tier2: "Cash Withdrawal"
-      tier3: "ATM Withdrawal"
+      tier1: "Presuny (Neutrálne)"
+      tier2: "Interné presuny"
+      tier3: "Výber z bankomatu"
 
   # ==================== ONLINE SERVICES ====================
   - name: "Netflix"
@@ -664,9 +562,9 @@ manual_rules:
       field: "description"
       value: "NETFLIX"
     category:
-      tier1: "Living Expenses"
-      tier2: "Utilities"
-      tier3: "TV & Streaming"
+      tier1: "Spotreba Rodina"
+      tier2: "Energie a Služby"
+      tier3: "Streamovanie (Netflix...)"
 
   - name: "Spotify"
     priority: 100
@@ -675,9 +573,9 @@ manual_rules:
       field: "description"
       value: "SPOTIFY"
     category:
-      tier1: "Discretionary"
-      tier2: "Entertainment"
-      tier3: "Music & Apps"
+      tier1: "Spotreba Rodina"
+      tier2: "Osobná útrata"
+      tier3: "Aplikácie a Hry"
 
   - name: "Amazon"
     priority: 100
@@ -686,9 +584,9 @@ manual_rules:
       field: "counterparty_name"
       value: "AMAZON"
     category:
-      tier1: "Discretionary"
-      tier2: "Shopping"
-      tier3: "Online Shopping"
+      tier1: "Spotreba Rodina"
+      tier2: "Osobná útrata"
+      tier3: "Koníčky"
 
   # ==================== PHARMACY ====================
   - name: "Dr. Max Pharmacy"
@@ -698,9 +596,9 @@ manual_rules:
       field: "counterparty_name"
       value: "DR.MAX"
     category:
-      tier1: "Living Expenses"
-      tier2: "Healthcare"
-      tier3: "Pharmacy"
+      tier1: "Spotreba Rodina"
+      tier2: "Zdravie a Starostlivosť"
+      tier3: "Lekáreň / Vitamíny"
 
   - name: "Benu Pharmacy"
     priority: 100
@@ -709,9 +607,9 @@ manual_rules:
       field: "counterparty_name"
       value: "BENU"
     category:
-      tier1: "Living Expenses"
-      tier2: "Healthcare"
-      tier3: "Pharmacy"
+      tier1: "Spotreba Rodina"
+      tier2: "Zdravie a Starostlivosť"
+      tier3: "Lekáreň / Vitamíny"
 
   # ==================== INSURANCE ====================
   - name: "Kooperativa Insurance"
@@ -721,9 +619,9 @@ manual_rules:
       field: "counterparty_name"
       value: "KOOPERATIVA"
     category:
-      tier1: "Financial"
-      tier2: "Insurance"
-      tier3: "Life Insurance"
+      tier1: "Spotreba Rodina"
+      tier2: "Ostatné (Rodina)"
+      tier3: "Životné poistenie"
 
   - name: "CSOB Insurance"
     priority: 100
@@ -732,21 +630,10 @@ manual_rules:
       field: "counterparty_name"
       value: "CSOB POJISTOVNA"
     category:
-      tier1: "Living Expenses"
-      tier2: "Housing"
-      tier3: "Home Insurance"
+      tier1: "Spotreba Rodina"
+      tier2: "Bývanie (Domov)"
+      tier3: "Poistenie domácnosti"
 
-  # ==================== BANK FEES ====================
-  - name: "Bank Fee"
-    priority: 100
-    match:
-      type: "contains"
-      field: "description"
-      value: "POPLATEK"
-    category:
-      tier1: "Financial"
-      tier2: "Bank Fees"
-      tier3: "Account Fee"
 
 # ============================================================================
 # AI FALLBACK CONFIGURATION (Gemini Flash)

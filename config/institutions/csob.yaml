@@ -17,51 +17,47 @@ csv_format:
   has_header: true
   skip_rows: 2  # First row is title, second row is empty, third row is header
 
+transformations:
+  # Date format
+  date:
+    format: "%d.%m.%Y"  # 31.10.2025
+
+  # Amount format
+  amount:
+    decimal_separator: ","
+    thousands_separator: " "
+    reverse_sign: false
+
+  # Description cleanup
+  description:
+    strip_whitespace: true
+    remove_patterns:
+      - "^Částka: [\\d,.]+ CZK \\d{2}\\.\\d{2}\\.\\d{4} "
+      - "Místo: "
+
+  # Combine counterparty account + bank code
+  combined_counterparty_account: "'číslo protiúčtu' + '/' + 'kód banky protiúčtu'"
+
 column_mapping:
   # Core fields
   date: "datum zaúčtování"
   description: "zpráva"
   amount: "částka"
   currency: "měna"
-  
-  # Optional fields
-  account: "číslo účtu"
-  balance: "zůstatek"
-  counterparty_account: "číslo protiúčtu"
-  counterparty_bank: "kód banky protiúčtu"
-  counterparty_name: "jméno protistrany"
-  transaction_type: "označení operace"
-  variable_symbol: "variabilní symbol"
-  constant_symbol: "konstantní symbol"
-  specific_symbol: "specifický symbol"
-  transaction_id: "ID transakce"
-  
-  # Category from ČSOB
-  category_source: "kategorie"
-  
-  # Defaults (when column doesn't exist)
-  defaults:
-    institution: "ČSOB"
 
-transformations:
-  date:
-    format: "%d.%m.%Y"  # 31.10.2025
-    
-  amount:
-    # ČSOB uses comma as decimal separator
-    decimal_separator: ","
-    # Thousands separator is space or nothing
-    thousands_separator: " "
-    # Negative numbers already have minus sign
-    reverse_sign: false
-    
-  description:
-    strip_whitespace: true
-    # Clean up common patterns
-    remove_patterns:
-      - "^Částka: [\\d,.]+ CZK \\d{2}\\.\\d{2}\\.\\d{4} "
-      - "Místo: "
-      
+  # Account info
+  account: "číslo účtu"
+
+  # Counterparty
+  counterparty_account: "combined_counterparty_account"
+  counterparty_name: "jméno protistrany"
+
+  # Optional fields
+  variable_symbol: "variabilní symbol"
+  transaction_type: "označení operace"
+  transaction_id: "ID transakce"
+  category: "kategorie"
+
 filtering:
   # Skip header row with account summary
   skip_if_contains:
@@ -69,17 +65,13 @@ filtering:
 
 owner_detection:
   method: "account_mapping"
-  # Map account numbers to owners (update with your accounts)
   account_mapping:
-    "283337817/0300": "Spolocne"  # Credit card
-    "210621040/0300": "Brano"  # Main account
-    "243160770/0300": "Mirka"  # Mirka account
-  
-  # Fallback if account not in mapping
+    "283337817/0300": "Kreditka"
+    "210621040/0300": "Brano"
+    "243160770/0300": "Mirka"
   default_owner: "Unknown"
 
 category_mapping:
-  # Map ČSOB categories to standardized categories
   "Restaurace": "Dining"
   "Potraviny": "Groceries"
   "Doprava": "Transport"
@@ -93,13 +85,10 @@ category_mapping:
   "Příchozí nezatříděná": "Uncategorized"
 
 notes: |
-  ČSOB exports have:
-  - BOM (Byte Order Mark) at start - handled by utf-8-sig encoding
-  - First row: account summary line (skip)
-  - Second row: empty (skip)
-  - Third row: headers
+  ČSOB exports:
+  - BOM (Byte Order Mark) - handled by utf-8-sig encoding
+  - Skip first 2 rows (account summary + empty line)
   - Semicolon delimiter
-  - Comma decimal separator with space as thousands separator
-  - Rich transaction details in "zpráva" field
+  - Comma decimal, space thousands separator
+  - Rich transaction details
   - Pre-categorized transactions
-  - Both debit and credit on same account

@@ -165,7 +165,30 @@ class TransactionCategorizer:
         2. Description keywords
         3. Same-day opposite amount (optional)
         """
+        # Check exclusions first - if any exclusion matches, NOT an internal transfer
+        exclusions = self.config.get('internal_transfers', {}).get('exclusions', {})
+
+        # Exclude specific counterparty names (e.g., TransferWise cashback, Amazon refunds)
+        exclude_counterparty_names = exclusions.get('counterparty_names', [])
+        counterparty_name = transaction.get('counterparty_name', '')
+        if counterparty_name in exclude_counterparty_names:
+            logger.debug(f"Excluded from internal transfer: counterparty_name '{counterparty_name}' in exclusion list")
+            return False
+
+        # Exclude specific transaction types (e.g., Úroky/Interest is income, not transfer)
+        exclude_transaction_types = exclusions.get('transaction_types', [])
+        transaction_type = transaction.get('type', '')
+        if transaction_type in exclude_transaction_types:
+            logger.debug(f"Excluded from internal transfer: transaction_type '{transaction_type}' in exclusion list")
+            return False
+
+        # Now proceed with detection methods
         detection_methods = self.config.get('internal_transfers', {}).get('detection_methods', [])
+
+        # Debug: Log what we're checking
+        account = transaction.get('account', '')
+        counterparty = transaction.get('counterparty_account', '')
+        logger.debug(f"Checking internal transfer: account='{account}', counterparty='{counterparty}', own_accounts={self.own_accounts}")
 
         for method in detection_methods:
             if not method.get('enabled', True):
@@ -175,10 +198,37 @@ class TransactionCategorizer:
 
             # Method 1: Counterparty in own accounts
             if method_type == 'counterparty_in_own_accounts':
-                counterparty = transaction.get('counterparty_account', '')
+                # Try exact match first
                 if counterparty in self.own_accounts:
-                    logger.debug(f"Internal transfer detected: counterparty {counterparty} in own accounts")
+                    logger.info(f"✓ Internal transfer detected: counterparty '{counterparty}' in own accounts (exact match)")
                     return True
+
+                # Fallback: Try matching base account number (without bank code)
+                # This handles format variations like "123456789" vs "123456789/0300"
+                if counterparty:
+                    counterparty_base = counterparty.split('/')[0] if '/' in counterparty else counterparty
+                    for own_account in self.own_accounts:
+                        own_account_base = own_account.split('/')[0] if '/' in own_account else own_account
+                        if counterparty_base == own_account_base:
+                            logger.info(f"✓ Internal transfer detected: counterparty base '{counterparty_base}' matches own account '{own_account}' (flexible match)")
+                            return True
+
+                # Also check if it's a self-transfer (account == counterparty_account)
+                # This catches transfers between own accounts (e.g., credit card payment)
+                if account and counterparty:
+                    # Try exact match first
+                    if account == counterparty:
+                        logger.info(f"✓ Internal transfer detected: self-transfer '{account}' == '{counterparty}'")
+                        return True
+
+                    # Try base account numbers (without bank codes)
+                    account_base = account.split('/')[0] if '/' in account else account
+                    counterparty_base = counterparty.split('/')[0] if '/' in counterparty else counterparty
+                    if account_base == counterparty_base:
+                        logger.info(f"✓ Internal transfer detected: self-transfer base '{account_base}' == '{counterparty_base}'")
+                        return True
+
+                logger.debug(f"✗ No match: counterparty='{counterparty}' not in own_accounts and not self-transfer")
 
             # Method 2: Description keywords
             elif method_type == 'description_keywords':

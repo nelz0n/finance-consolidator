@@ -63,6 +63,31 @@ class DataNormalizer:
         logger.info(f"Normalized {len(transactions)} out of {len(raw_transactions)} transactions")
         return transactions
 
+    def _clean_string_field(self, value: Any) -> str:
+        """
+        Clean string field by removing quotes and empty strings.
+
+        Args:
+            value: Raw field value
+
+        Returns:
+            Cleaned string or empty string
+        """
+        if not value:
+            return ''
+
+        # Convert to string and strip
+        cleaned = str(value).strip()
+
+        # Strip quotes
+        cleaned = cleaned.strip('"').strip("'")
+
+        # If result is empty or just quotes, return empty string
+        if not cleaned or cleaned == '""' or cleaned == "''":
+            return ''
+
+        return cleaned
+
     def normalize_transaction(
         self,
         raw_data: Dict[str, Any],
@@ -95,18 +120,25 @@ class DataNormalizer:
         currency_raw = str(raw_data.get('currency', 'CZK')).strip().strip('"').strip("'")
         currency = normalize_currency_code(currency_raw)
 
-        # Convert to EUR
+        # Convert to CZK (base currency)
         try:
-            amount_eur = self.converter.convert(amount, currency, 'EUR')
+            amount_czk = self.converter.convert(amount, currency, 'CZK')
         except Exception as e:
             logger.warning(f"Currency conversion failed: {e}")
-            amount_eur = amount  # Fallback to original
+            amount_czk = amount  # Fallback to original
+
+        # Calculate the actual exchange rate used (amount_czk / amount)
+        # This gives us: 1 foreign currency = X CZK
+        if currency != 'CZK' and amount != 0:
+            actual_exchange_rate = amount_czk / amount
+        else:
+            actual_exchange_rate = Decimal('1.0')
 
         # Get description
         description = self._get_description(raw_data)
 
-        # Get account
-        account = raw_data.get('account', '')
+        # Get account (cleaned)
+        account = self._clean_string_field(raw_data.get('account', ''))
 
         # Determine owner
         owner = self._determine_owner(raw_data, account)
@@ -120,13 +152,24 @@ class DataNormalizer:
         # Get transaction type
         transaction_type = self._get_transaction_type(raw_data, amount)
 
+        # Wise-specific: Use Source name for IN transfers, Target name for OUT
+        counterparty_name_value = self._clean_string_field(raw_data.get('counterparty_name', ''))
+        if self.institution_name == "Wise":
+            direction = raw_data.get('_direction', raw_data.get('direction', ''))
+            if direction == 'IN':
+                # For incoming transfers, the sender is in Source name
+                source_name = self._clean_string_field(raw_data.get('_source_name', ''))
+                if source_name:
+                    counterparty_name_value = source_name
+                    logger.debug(f"Wise IN transfer: using Source name '{source_name}' as counterparty")
+
         # Create Transaction object
         transaction = Transaction(
             date=date,
             description=description,
             amount=amount,
             currency=currency,
-            amount_eur=amount_eur,
+            amount_czk=amount_czk,
             category=category,
             account=account,
             institution=self.institution_name,
@@ -135,16 +178,16 @@ class DataNormalizer:
             source_file=source_file,
             transaction_id=transaction_id,
             processed_date=datetime.now(),
-            # Optional fields
-            counterparty_account=raw_data.get('counterparty_account', ''),
-            counterparty_name=raw_data.get('counterparty_name', ''),
-            counterparty_bank=raw_data.get('counterparty_bank', ''),
-            reference=raw_data.get('reference', ''),
-            variable_symbol=raw_data.get('variable_symbol', ''),
-            constant_symbol=raw_data.get('constant_symbol', ''),
-            specific_symbol=raw_data.get('specific_symbol', ''),
-            note=raw_data.get('note', ''),
-            exchange_rate=self._parse_exchange_rate(raw_data.get('exchange_rate', ''))
+            # Optional fields (cleaned)
+            counterparty_account=self._clean_string_field(raw_data.get('counterparty_account', '')),
+            counterparty_name=counterparty_name_value,
+            counterparty_bank=self._clean_string_field(raw_data.get('counterparty_bank', '')),
+            reference=self._clean_string_field(raw_data.get('reference', '')),
+            variable_symbol=self._clean_string_field(raw_data.get('variable_symbol', '')),
+            constant_symbol=self._clean_string_field(raw_data.get('constant_symbol', '')),
+            specific_symbol=self._clean_string_field(raw_data.get('specific_symbol', '')),
+            note=self._clean_string_field(raw_data.get('note', '')),
+            exchange_rate=actual_exchange_rate
         )
 
         return transaction
@@ -239,12 +282,18 @@ class DataNormalizer:
             if reverse_sign:
                 amount = -amount
 
-            # Handle Wise direction field
+            # Handle direction field (Wise: OUT/IN, Partners: Odchozí/Příchozí)
             if 'direction' in raw_data or '_direction' in raw_data:
                 direction = raw_data.get('direction', raw_data.get('_direction', ''))
+                # Wise: OUT/IN
                 if direction == 'OUT' and amount > 0:
                     amount = -amount
                 elif direction == 'IN' and amount < 0:
+                    amount = -amount
+                # Partners Bank: Odchozí/Příchozí
+                elif direction == 'Odchozí' and amount > 0:
+                    amount = -amount
+                elif direction == 'Příchozí' and amount < 0:
                     amount = -amount
 
             return amount
@@ -317,12 +366,12 @@ class DataNormalizer:
         """
         category_mapping = self.config.get('category_mapping', {})
 
-        # Get source category
-        source_category = raw_data.get('category_source', raw_data.get('category', ''))
+        # Get source category (cleaned)
+        source_category = self._clean_string_field(raw_data.get('category_source', raw_data.get('category', '')))
 
         if not source_category:
-            # Try transaction type
-            source_category = raw_data.get('transaction_type', '')
+            # Try transaction type (cleaned)
+            source_category = self._clean_string_field(raw_data.get('transaction_type', ''))
 
         # Map to standard category
         if source_category in category_mapping:
@@ -349,8 +398,8 @@ class DataNormalizer:
         """
         Determine transaction type (Debit/Credit/Transfer).
         """
-        # Check if type is provided
-        txn_type = raw_data.get('transaction_type', '')
+        # Check if type is provided (clean it first)
+        txn_type = self._clean_string_field(raw_data.get('transaction_type', ''))
         if txn_type:
             return txn_type
 

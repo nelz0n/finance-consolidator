@@ -115,11 +115,24 @@ class CurrencyConverter:
         else:
             to_rate = self.rates[to_currency]
 
-        # Convert through base currency
-        # amount_in_base = amount / from_rate
-        # amount_in_target = amount_in_base * to_rate
-        amount_in_base = amount / from_rate
-        result = amount_in_base * to_rate
+        # Convert through base currency (CZK)
+        # Rates are stored as: 1 foreign currency = X CZK
+        # Example: EUR = 24.5 means 1 EUR = 24.5 CZK
+        # To convert FROM foreign to CZK: multiply by rate
+        # To convert FROM CZK to foreign: divide by rate
+        if from_currency == self.base_currency:
+            # Converting from CZK to foreign: divide by rate
+            amount_in_base = amount
+            result = amount_in_base / to_rate
+        elif to_currency == self.base_currency:
+            # Converting from foreign to CZK: multiply by rate
+            amount_in_base = amount * from_rate
+            result = amount_in_base
+        else:
+            # Converting between two foreign currencies: through CZK
+            # First convert to CZK (multiply), then to target (divide)
+            amount_in_base = amount * from_rate  # to CZK
+            result = amount_in_base / to_rate     # to target currency
 
         logger.debug(f"Converted {amount} {from_currency} to {result} {to_currency}")
         return result.quantize(Decimal('0.01'))

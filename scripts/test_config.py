@@ -149,8 +149,8 @@ def test_config(institution_name: str, file_path: str, show_all: bool = False):
         logger.info(f"     Date: {txn.date.strftime('%Y-%m-%d')}")
         logger.info(f"     Description: {txn.description[:50]}...")
         logger.info(f"     Amount: {txn.amount} {txn.currency}")
-        logger.info(f"     Amount EUR: {txn.amount_eur}")
-        logger.info(f"     Category: {txn.category}")
+        logger.info(f"     Amount CZK: {txn.amount_czk}")
+        logger.info(f"     Category Tier1: {txn.category_tier1}")
         logger.info(f"     Owner: {txn.owner}")
         logger.info(f"     Institution: {txn.institution}")
 
@@ -164,14 +164,14 @@ def test_config(institution_name: str, file_path: str, show_all: bool = False):
     total_amount = sum(t.amount for t in transactions)
     logger.info(f"   Total amount: {total_amount}")
 
-    total_eur = sum(t.amount_eur for t in transactions if t.amount_eur)
-    logger.info(f"   Total EUR: {total_eur:.2f}")
+    total_czk = sum(t.amount_czk for t in transactions if t.amount_czk)
+    logger.info(f"   Total CZK: {total_czk:.2f}")
 
     # Unique values
     owners = set(t.owner for t in transactions)
     logger.info(f"   Owners: {', '.join(owners)}")
 
-    categories = set(t.category for t in transactions if t.category)
+    categories = set(t.category_tier1 for t in transactions if t.category_tier1)
     logger.info(f"   Categories: {len(categories)} unique")
 
     currencies = set(t.currency for t in transactions)

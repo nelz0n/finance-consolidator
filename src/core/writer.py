@@ -58,10 +58,20 @@ class SheetsWriter:
             headers = Transaction.get_header()
             rows = []
 
+            # Define numeric fields that should remain as numbers
+            numeric_fields = {'amount', 'amount_czk', 'exchange_rate'}
+
             for txn in transactions:
                 # Get dict and convert to list in header order
                 txn_dict = txn.to_dict()
-                row = [str(txn_dict.get(field, '')) for field in headers]
+                row = []
+                for field in headers:
+                    value = txn_dict.get(field, '')
+                    # Keep numeric fields as numbers (float), convert rest to string
+                    if field in numeric_fields and value not in (None, '', 'None'):
+                        row.append(float(value))
+                    else:
+                        row.append(str(value) if value not in (None, 'None') else '')
                 rows.append(row)
 
             logger.debug(f"Converted {len(rows)} transactions to rows")
@@ -84,12 +94,16 @@ class SheetsWriter:
                 # Check if we need to add headers
                 existing_data = self.sheets.read_sheet(
                     self.spreadsheet_id,
-                    f"{tab_name}!A1:A1"
+                    f"{tab_name}!A1:Z1"
                 )
 
-                # If sheet is empty, add headers first
-                if not existing_data:
-                    logger.info("Adding headers to empty sheet")
+                # If sheet is empty OR first row doesn't match expected headers, add/fix headers
+                if not existing_data or (existing_data and existing_data[0] != headers):
+                    if existing_data:
+                        logger.warning("Header row missing or incorrect - adding proper headers")
+                    else:
+                        logger.info("Adding headers to empty sheet")
+
                     self.sheets.write_sheet(
                         self.spreadsheet_id,
                         f"{tab_name}!A1",
@@ -151,10 +165,20 @@ class SheetsWriter:
             headers = Balance.get_header()
             rows = []
 
+            # Define numeric fields that should remain as numbers
+            numeric_fields = {'amount', 'amount_czk', 'units', 'price_per_unit', 'total_value'}
+
             for bal in balances:
                 # Get dict and convert to list in header order
                 bal_dict = bal.to_dict()
-                row = [str(bal_dict.get(field, '')) for field in headers]
+                row = []
+                for field in headers:
+                    value = bal_dict.get(field, '')
+                    # Keep numeric fields as numbers (float), convert rest to string
+                    if field in numeric_fields and value not in (None, '', 'None'):
+                        row.append(float(value))
+                    else:
+                        row.append(str(value) if value not in (None, 'None') else '')
                 rows.append(row)
 
             logger.debug(f"Converted {len(rows)} balances to rows")
@@ -177,12 +201,16 @@ class SheetsWriter:
                 # Check if we need to add headers
                 existing_data = self.sheets.read_sheet(
                     self.spreadsheet_id,
-                    f"{tab_name}!A1:A1"
+                    f"{tab_name}!A1:Z1"
                 )
 
-                # If sheet is empty, add headers first
-                if not existing_data:
-                    logger.info("Adding headers to empty sheet")
+                # If sheet is empty OR first row doesn't match expected headers, add/fix headers
+                if not existing_data or (existing_data and existing_data[0] != headers):
+                    if existing_data:
+                        logger.warning("Header row missing or incorrect - adding proper headers")
+                    else:
+                        logger.info("Adding headers to empty sheet")
+
                     self.sheets.write_sheet(
                         self.spreadsheet_id,
                         f"{tab_name}!A1",

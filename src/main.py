@@ -19,6 +19,7 @@ import tempfile
 from src.utils.logger import setup_logger
 from src.utils.currency import CurrencyConverter
 from src.utils.date_parser import get_date_range
+from src.utils.categorizer import get_categorizer
 from src.connectors.google_drive import GoogleDriveConnector
 from src.connectors.google_sheets import GoogleSheetsConnector
 from src.core.file_scanner import FileScanner
@@ -205,6 +206,9 @@ def main():
             credentials_path=config['google_drive']['credentials_path'],
             token_path=config['google_drive']['token_path']
         )
+        if not drive.authenticate():
+            logger.error("Failed to authenticate with Google Drive")
+            sys.exit(1)
         logger.info("✓ Google Drive connected")
 
         # Initialize Google Sheets connector
@@ -213,6 +217,9 @@ def main():
             credentials_path=config['google_drive']['credentials_path'],
             token_path=config['google_drive']['token_path']
         )
+        if not sheets.authenticate():
+            logger.error("Failed to authenticate with Google Sheets")
+            sys.exit(1)
         logger.info("✓ Google Sheets connected")
 
         # Initialize currency converter
@@ -222,6 +229,11 @@ def main():
             base_currency=config['currency']['base_currency']
         )
         logger.info(f"✓ Currency converter ready (base: {config['currency']['base_currency']})")
+
+        # Initialize categorizer
+        logger.info("Initializing categorizer...")
+        categorizer = get_categorizer("config/categorization.yaml")
+        logger.info("✓ Categorizer ready")
 
         # Initialize file scanner
         logger.info("Initializing file scanner...")
@@ -297,6 +309,16 @@ def main():
                     for raw_txn in raw_data:
                         txn = normalizer.normalize_transaction(raw_txn, filename)
                         if txn:
+                            # Apply categorization
+                            txn_dict = txn.to_dict()
+                            tier1, tier2, tier3, is_internal = categorizer.categorize(txn_dict)
+
+                            # Update transaction with category info
+                            txn.category_tier1 = tier1
+                            txn.category_tier2 = tier2
+                            txn.category_tier3 = tier3
+                            txn.is_internal_transfer = is_internal
+
                             file_transactions.append(txn)
 
                     logger.info(f"✓ Normalized {len(file_transactions)} transactions")
@@ -318,6 +340,11 @@ def main():
         logger.info(f"  Files processed: {processed_files}/{len(matched_files)}")
         logger.info(f"  Files failed: {failed_files}")
         logger.info(f"  Total transactions: {len(all_transactions)}")
+
+        # Count internal transfers
+        internal_count = sum(1 for txn in all_transactions if txn.is_internal_transfer)
+        logger.info(f"  Internal transfers: {internal_count}")
+
         logger.info("=" * 80)
 
         if not all_transactions:

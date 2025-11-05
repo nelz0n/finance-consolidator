@@ -321,11 +321,21 @@ class FileParser:
 
         for column, transform_expr in transformations.items():
             try:
-                # Handle concatenation: "A + B + C"
+                # Handle concatenation: "A + B + C" or "8 + ' [Msg: ' + 4"
                 if '+' in transform_expr:
                     parts = [p.strip().strip("'\"") for p in transform_expr.split('+')]
                     values = []
                     for part in parts:
+                        # Try as integer index first (for Partners Bank numeric indices)
+                        try:
+                            idx = int(part)
+                            if idx in row:
+                                values.append(str(row[idx]))
+                                continue
+                        except ValueError:
+                            pass
+
+                        # Then try as string key (for column names)
                         if part in row:
                             values.append(str(row[part]))
                         else:

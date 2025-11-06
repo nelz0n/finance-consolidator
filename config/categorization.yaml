@@ -69,7 +69,7 @@ internal_transfers:
 ai_fallback:
   enabled: true
   provider: "gemini"
-  model: "gemini-1.5-flash"
+  model: "gemini-2.0-flash-exp"
 
   # API Configuration
   api_key_env: "GEMINI_API_KEY"  # Read from environment variable

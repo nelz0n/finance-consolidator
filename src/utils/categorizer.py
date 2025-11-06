@@ -827,7 +827,7 @@ class TransactionCategorizer:
         api_key = self._gemini_api_key
 
         # Construct full URL: base_url/models/model_name:generateContent
-        url = f"{api_base_url}/models/{model}:generateContent?key={api_key}"
+        url = f"{api_base_url}/models/{model}:generateContent"
 
         payload = {
             "contents": [{
@@ -835,7 +835,11 @@ class TransactionCategorizer:
             }]
         }
 
-        headers = {"Content-Type": "application/json"}
+        # Use x-goog-api-key header (official API format)
+        headers = {
+            "Content-Type": "application/json",
+            "x-goog-api-key": api_key
+        }
 
         response = requests.post(url, json=payload, headers=headers, timeout=30)
         response.raise_for_status()

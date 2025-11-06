@@ -130,6 +130,12 @@ Examples:
         help='Skip duplicate detection (faster but may create duplicates)'
     )
 
+    parser.add_argument(
+        '--reload-rules',
+        action='store_true',
+        help='Force reload categorization rules from Google Sheets (bypass cache)'
+    )
+
     return parser.parse_args()
 
 
@@ -232,7 +238,11 @@ def main():
 
         # Initialize categorizer
         logger.info("Initializing categorizer...")
-        categorizer = get_categorizer("config/categorization.yaml")
+        categorizer = get_categorizer(
+            "config/categorization.yaml",
+            "config/settings.yaml",
+            reload_rules=args.reload_rules
+        )
         logger.info("✓ Categorizer ready")
 
         # Initialize file scanner
@@ -311,13 +321,17 @@ def main():
                         if txn:
                             # Apply categorization
                             txn_dict = txn.to_dict()
-                            tier1, tier2, tier3, is_internal = categorizer.categorize(txn_dict)
+                            tier1, tier2, tier3, owner, is_internal = categorizer.categorize(txn_dict)
 
                             # Update transaction with category info
                             txn.category_tier1 = tier1
                             txn.category_tier2 = tier2
                             txn.category_tier3 = tier3
                             txn.is_internal_transfer = is_internal
+
+                            # Update owner (from rules or owner_mapping)
+                            if owner:
+                                txn.owner = owner
 
                             file_transactions.append(txn)
 

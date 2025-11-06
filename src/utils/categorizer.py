@@ -3,7 +3,7 @@ Transaction Categorization Engine
 
 Handles 3-tier categorization with:
 1. Internal transfer detection
-2. Manual rules
+2. Manual rules (from Google Sheets or YAML)
 3. Gemini AI fallback
 4. Learning system
 """
@@ -33,15 +33,23 @@ class TransactionCategorizer:
     5. Uncategorized
     """
 
-    def __init__(self, config_path: str = "config/categorization.yaml"):
+    def __init__(self, config_path: str = "config/categorization.yaml",
+                 settings_path: str = "config/settings.yaml",
+                 reload_rules: bool = False):
         """
         Initialize categorizer.
 
         Args:
             config_path: Path to categorization config file
+            settings_path: Path to settings file (for Google Sheets config)
+            reload_rules: Force reload rules from Google Sheets (bypass cache)
         """
         self.config_path = Path(config_path)
         self.config = self._load_config()
+
+        # Load settings for Google Sheets configuration
+        self.settings = self._load_settings(settings_path)
+        self.reload_rules = reload_rules
 
         # Internal transfer detection
         self.own_accounts = set(self.config.get('internal_transfers', {}).get('own_accounts', []))
@@ -49,10 +57,10 @@ class TransactionCategorizer:
             'detection_methods', []
         )
 
-        # Manual rules
-        self.manual_rules = self.config.get('manual_rules', [])
-        # Sort by priority (higher first)
-        self.manual_rules.sort(key=lambda r: r.get('priority', 0), reverse=True)
+        # Load manual rules (from Google Sheets or YAML)
+        self.manual_rules = []
+        self.owner_mapping = {}
+        self._load_manual_rules()
 
         # AI configuration
         self.ai_config = self.config.get('ai_fallback', {})
@@ -88,6 +96,192 @@ class TransactionCategorizer:
             logger.error(f"Error loading categorization config: {e}")
             return {}
 
+    def _load_settings(self, settings_path: str) -> Dict:
+        """Load settings configuration."""
+        settings_file = Path(settings_path)
+        if not settings_file.exists():
+            logger.warning(f"Settings file not found: {settings_path}")
+            return {}
+
+        try:
+            with open(settings_file, 'r', encoding='utf-8') as f:
+                settings = yaml.safe_load(f)
+            return settings
+        except Exception as e:
+            logger.error(f"Error loading settings: {e}")
+            return {}
+
+    def _load_manual_rules(self):
+        """Load manual rules from Google Sheets or YAML."""
+        # Check if Google Sheets-based categorization is configured
+        cat_config = self.settings.get('categorization', {})
+        rules_source = cat_config.get('rules_source', 'yaml')
+
+        if rules_source == 'google_sheets':
+            logger.info("Loading categorization rules from Google Sheets...")
+            self.manual_rules, self.owner_mapping = self._load_rules_from_sheets()
+        else:
+            logger.info("Loading categorization rules from YAML...")
+            self.manual_rules = self.config.get('manual_rules', [])
+            self.owner_mapping = {}
+
+        # Sort by priority (higher first)
+        if self.manual_rules:
+            self.manual_rules.sort(key=lambda r: r.get('priority', 0), reverse=True)
+            logger.info(f"Loaded {len(self.manual_rules)} manual rules")
+
+    def _load_rules_from_sheets(self) -> Tuple[List[Dict], Dict[str, str]]:
+        """
+        Load categorization rules from Google Sheets.
+
+        Returns:
+            Tuple of (rules list, owner mapping dict)
+        """
+        cat_config = self.settings.get('categorization', {})
+        cache_enabled = cat_config.get('cache_enabled', True)
+        cache_file = Path(cat_config.get('cache_file', 'data/cache/sheets_rules.yaml'))
+        cache_ttl_hours = cat_config.get('cache_ttl_hours', 24)
+
+        # Check cache first (if not force reload)
+        if cache_enabled and not self.reload_rules:
+            cached_data = self._check_cache(cache_file, cache_ttl_hours)
+            if cached_data:
+                logger.info(f"Using cached rules from {cache_file}")
+                return (
+                    cached_data.get('rules', []),
+                    cached_data.get('owner_mapping', {})
+                )
+
+        # Load from Google Sheets
+        try:
+            from src.connectors.google_sheets import GoogleSheetsConnector
+
+            sheets_config = cat_config.get('google_sheets', {})
+            spreadsheet_id = sheets_config.get('spreadsheet_id',
+                                              self.settings.get('google_sheets', {}).get('master_sheet_id'))
+            rules_tab = sheets_config.get('rules_tab', 'Categorization_Rules')
+            owner_tab = sheets_config.get('owner_mapping_tab', 'Owner_Mapping')
+
+            # Get credentials paths
+            creds_path = self.settings.get('google_drive', {}).get('credentials_path')
+            token_path = self.settings.get('google_drive', {}).get('token_path')
+
+            # Connect to Google Sheets
+            connector = GoogleSheetsConnector(creds_path, token_path)
+            if not connector.authenticate():
+                logger.error("Failed to authenticate with Google Sheets")
+                return ([], {})
+
+            # Load rules
+            rules_data = connector.read_sheet(spreadsheet_id, f"{rules_tab}!A:L")
+            if not rules_data or len(rules_data) < 2:
+                logger.warning(f"No rules found in {rules_tab}")
+                return ([], {})
+
+            # Parse rules (skip header row)
+            headers = rules_data[0]
+            rules = []
+            for row in rules_data[1:]:
+                if len(row) < 12:
+                    # Pad row with empty strings
+                    row = row + [''] * (12 - len(row))
+
+                rule = {
+                    'priority': int(row[0]) if row[0] else 0,
+                    'description_contains': row[1].strip() if row[1] else '',
+                    'institution_exact': row[2].strip() if row[2] else '',
+                    'counterparty_account_exact': row[3].strip() if row[3] else '',
+                    'counterparty_name_contains': row[4].strip() if row[4] else '',
+                    'variable_symbol_exact': row[5].strip() if row[5] else '',
+                    'amount_czk_min': float(row[6]) if row[6] else None,
+                    'amount_czk_max': float(row[7]) if row[7] else None,
+                    'tier1': row[8].strip() if row[8] else '',
+                    'tier2': row[9].strip() if row[9] else '',
+                    'tier3': row[10].strip() if row[10] else '',
+                    'owner': row[11].strip() if row[11] else '',
+                }
+                rules.append(rule)
+
+            logger.info(f"Loaded {len(rules)} rules from Google Sheets")
+
+            # Load owner mapping
+            owner_data = connector.read_sheet(spreadsheet_id, f"{owner_tab}!A:B")
+            owner_mapping = {}
+            if owner_data and len(owner_data) > 1:
+                for row in owner_data[1:]:  # Skip header
+                    if len(row) >= 2:
+                        account = row[0].strip()
+                        owner = row[1].strip()
+                        if account and owner:
+                            owner_mapping[account] = owner
+
+                logger.info(f"Loaded {len(owner_mapping)} owner mappings from Google Sheets")
+
+            # Cache the results
+            if cache_enabled:
+                self._save_cache(cache_file, rules, owner_mapping)
+
+            return (rules, owner_mapping)
+
+        except Exception as e:
+            logger.error(f"Error loading rules from Google Sheets: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return ([], {})
+
+    def _check_cache(self, cache_file: Path, ttl_hours: int) -> Optional[Dict]:
+        """
+        Check if cached rules are still valid.
+
+        Args:
+            cache_file: Path to cache file
+            ttl_hours: Time-to-live in hours
+
+        Returns:
+            Cached data if valid, None otherwise
+        """
+        if not cache_file.exists():
+            return None
+
+        try:
+            # Check file age
+            file_age = datetime.now() - datetime.fromtimestamp(cache_file.stat().st_mtime)
+            if file_age.total_seconds() > ttl_hours * 3600:
+                logger.info(f"Cache expired (age: {file_age.total_seconds() / 3600:.1f}h > {ttl_hours}h)")
+                return None
+
+            # Load cache
+            with open(cache_file, 'r', encoding='utf-8') as f:
+                cached_data = yaml.safe_load(f)
+
+            logger.info(f"Cache valid (age: {file_age.total_seconds() / 3600:.1f}h)")
+            return cached_data
+
+        except Exception as e:
+            logger.warning(f"Error reading cache: {e}")
+            return None
+
+    def _save_cache(self, cache_file: Path, rules: List[Dict], owner_mapping: Dict[str, str]):
+        """Save rules to cache file."""
+        try:
+            # Ensure directory exists
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+
+            # Save to file
+            cache_data = {
+                'rules': rules,
+                'owner_mapping': owner_mapping,
+                'cached_at': datetime.now().isoformat()
+            }
+
+            with open(cache_file, 'w', encoding='utf-8') as f:
+                yaml.dump(cache_data, f, default_flow_style=False, allow_unicode=True)
+
+            logger.info(f"Saved {len(rules)} rules to cache: {cache_file}")
+
+        except Exception as e:
+            logger.warning(f"Error saving cache: {e}")
+
     def _load_learned_rules(self) -> List[Dict]:
         """Load learned rules from cache."""
         if not self.learning_enabled:
@@ -107,7 +301,7 @@ class TransactionCategorizer:
             logger.warning(f"Could not load learned rules: {e}")
             return []
 
-    def categorize(self, transaction: Dict[str, Any]) -> Tuple[str, str, str, bool]:
+    def categorize(self, transaction: Dict[str, Any]) -> Tuple[str, str, str, str, bool]:
         """
         Categorize a transaction.
 
@@ -122,39 +316,74 @@ class TransactionCategorizer:
                 etc.
 
         Returns:
-            Tuple of (tier1, tier2, tier3, is_internal_transfer)
+            Tuple of (tier1, tier2, tier3, owner, is_internal_transfer)
         """
         # 1. Check internal transfer
         if self._is_internal_transfer(transaction):
             logger.debug(f"Detected internal transfer: {transaction.get('description', '')[:50]}")
             transfer_cat = self.config.get('internal_transfers', {}).get('category', {})
+            # Owner still determined by fallback for internal transfers
+            owner = self._determine_owner(transaction)
             return (
                 transfer_cat.get('tier1', 'Transfers'),
                 transfer_cat.get('tier2', 'Internal Transfer'),
                 transfer_cat.get('tier3', 'Between Own Accounts'),
+                owner,
                 True  # is_internal_transfer
             )
 
-        # 2. Try manual rules
+        # 2. Try manual rules (now returns owner too)
         result = self._apply_manual_rules(transaction)
         if result:
-            return result + (False,)  # Not internal transfer
+            tier1, tier2, tier3, owner_from_rule = result
+            # If owner not in rule, use fallback
+            if not owner_from_rule:
+                owner_from_rule = self._determine_owner(transaction)
+            return (tier1, tier2, tier3, owner_from_rule, False)
 
         # 3. Try learned rules
         if self.learning_enabled:
             result = self._apply_learned_rules(transaction)
             if result:
-                return result + (False,)
+                owner = self._determine_owner(transaction)
+                return result + (owner, False)
 
         # 4. Try AI fallback
         if self.ai_enabled:
             result = self._apply_ai_categorization(transaction)
             if result:
-                return result + (False,)
+                owner = self._determine_owner(transaction)
+                return result + (owner, False)
 
         # 5. Default to uncategorized
         logger.debug(f"No category found for: {transaction.get('description', '')[:50]}")
-        return ("Uncategorized", "Needs Review", "Unknown Transaction", False)
+        owner = self._determine_owner(transaction)
+        return ("Uncategorized", "Needs Review", "Unknown Transaction", owner, False)
+
+    def _determine_owner(self, transaction: Dict[str, Any]) -> str:
+        """
+        Determine owner from owner_mapping or fallback to transaction's existing owner.
+
+        Args:
+            transaction: Transaction dictionary
+
+        Returns:
+            Owner name
+        """
+        account = transaction.get('account', '')
+
+        # Check owner_mapping (from Google Sheets or config)
+        if account in self.owner_mapping:
+            return self.owner_mapping[account]
+
+        # Try without bank code (e.g., "283337817/0300" -> "283337817")
+        if '/' in account:
+            account_base = account.split('/')[0]
+            if account_base in self.owner_mapping:
+                return self.owner_mapping[account_base]
+
+        # Fallback to transaction's existing owner field
+        return transaction.get('owner', 'Unknown')
 
     def _is_internal_transfer(self, transaction: Dict[str, Any]) -> bool:
         """
@@ -248,36 +477,117 @@ class TransactionCategorizer:
 
         return False
 
-    def _apply_manual_rules(self, transaction: Dict[str, Any]) -> Optional[Tuple[str, str, str]]:
+    def _apply_manual_rules(self, transaction: Dict[str, Any]) -> Optional[Tuple[str, str, str, str]]:
         """
         Apply manual categorization rules.
 
         Returns:
-            (tier1, tier2, tier3) tuple if match found, None otherwise
+            (tier1, tier2, tier3, owner) tuple if match found, None otherwise
         """
         for rule in self.manual_rules:
             if self._rule_matches(rule, transaction):
-                category = rule.get('category', {})
-                tier1 = category.get('tier1')
-                tier2 = category.get('tier2')
-                tier3 = category.get('tier3')
+                # Check if this is new Google Sheets format (tier1, tier2, tier3 at top level)
+                if 'tier1' in rule:
+                    tier1 = rule.get('tier1', '')
+                    tier2 = rule.get('tier2', '')
+                    tier3 = rule.get('tier3', '')
+                    owner = rule.get('owner', '')
+                else:
+                    # Old YAML format (category dict)
+                    category = rule.get('category', {})
+                    tier1 = category.get('tier1')
+                    tier2 = category.get('tier2')
+                    tier3 = category.get('tier3')
+                    owner = ''
 
-                logger.debug(f"Rule '{rule.get('name')}' matched: {tier1} > {tier2} > {tier3}")
-                return (tier1, tier2, tier3)
+                logger.debug(f"Rule matched: {tier1} > {tier2} > {tier3}" + (f" (owner: {owner})" if owner else ""))
+                return (tier1, tier2, tier3, owner)
 
         return None
+
+    def _sheets_rule_matches(self, rule: Dict, transaction: Dict[str, Any]) -> bool:
+        """
+        Match rule in Google Sheets format (simple AND logic).
+
+        All non-empty conditions must match.
+
+        Fields:
+        - description_contains: Check if description contains string (case-insensitive)
+        - institution_exact: Check if institution matches exactly (case-insensitive)
+        - counterparty_account_exact: Check if counterparty_account matches exactly
+        - counterparty_name_contains: Check if counterparty_name contains string (case-insensitive)
+        - variable_symbol_exact: Check if variable_symbol matches exactly
+        - amount_czk_min: Minimum amount in CZK
+        - amount_czk_max: Maximum amount in CZK
+        """
+        # Get transaction fields
+        description = str(transaction.get('description', '')).upper()
+        institution = str(transaction.get('institution', '')).upper()
+        counterparty_account = str(transaction.get('counterparty_account', '')).strip()
+        counterparty_name = str(transaction.get('counterparty_name', '')).upper()
+        variable_symbol = str(transaction.get('variable_symbol', '')).strip()
+        amount_czk = transaction.get('amount_czk', 0)
+        if isinstance(amount_czk, Decimal):
+            amount_czk = float(amount_czk)
+
+        # Check description contains
+        desc_check = rule.get('description_contains', '').strip()
+        if desc_check:
+            if desc_check.upper() not in description:
+                return False
+
+        # Check institution exact
+        inst_check = rule.get('institution_exact', '').strip()
+        if inst_check:
+            if inst_check.upper() != institution:
+                return False
+
+        # Check counterparty account exact
+        cp_account_check = rule.get('counterparty_account_exact', '').strip()
+        if cp_account_check:
+            if cp_account_check != counterparty_account:
+                return False
+
+        # Check counterparty name contains
+        cp_name_check = rule.get('counterparty_name_contains', '').strip()
+        if cp_name_check:
+            if cp_name_check.upper() not in counterparty_name:
+                return False
+
+        # Check variable symbol exact
+        vs_check = rule.get('variable_symbol_exact', '').strip()
+        if vs_check:
+            if vs_check != variable_symbol:
+                return False
+
+        # Check amount range
+        amount_min = rule.get('amount_czk_min')
+        amount_max = rule.get('amount_czk_max')
+
+        if amount_min is not None:
+            if amount_czk < amount_min:
+                return False
+
+        if amount_max is not None:
+            if amount_czk > amount_max:
+                return False
+
+        # All conditions matched
+        return True
 
     def _rule_matches(self, rule: Dict, transaction: Dict[str, Any]) -> bool:
         """
         Check if a rule matches a transaction.
 
-        Rule format:
-        match:
-          type: "contains" | "exact" | "regex" | "amount_range" | "multi"
-          field: "counterparty_name" | "description" | "amount" etc.
-          value: "search string"
-          pattern: "regex pattern" (for regex type)
+        Supports two formats:
+        1. New Google Sheets format (simple AND logic with specific fields)
+        2. Old YAML format (match dict with type, field, value)
         """
+        # Check if this is new Google Sheets format
+        if 'description_contains' in rule or 'institution_exact' in rule:
+            return self._sheets_rule_matches(rule, transaction)
+
+        # Old YAML format
         match = rule.get('match', {})
         match_type = match.get('type')
 
@@ -536,6 +846,18 @@ class TransactionCategorizer:
             json.dump(cache, f, indent=2, ensure_ascii=False)
 
 
-def get_categorizer(config_path: str = "config/categorization.yaml") -> TransactionCategorizer:
-    """Convenience function to get categorizer instance."""
-    return TransactionCategorizer(config_path)
+def get_categorizer(config_path: str = "config/categorization.yaml",
+                   settings_path: str = "config/settings.yaml",
+                   reload_rules: bool = False) -> TransactionCategorizer:
+    """
+    Convenience function to get categorizer instance.
+
+    Args:
+        config_path: Path to categorization config file
+        settings_path: Path to settings file
+        reload_rules: Force reload rules from Google Sheets (bypass cache)
+
+    Returns:
+        TransactionCategorizer instance
+    """
+    return TransactionCategorizer(config_path, settings_path, reload_rules)

@@ -55,6 +55,25 @@ currency:
     cache_dir: "data/cache"  # Directory to cache CNB rates
     # CNB updates daily around 2:30 PM CET
 
+# Categorization Configuration
+categorization:
+  # Rules source: "google_sheets" or "yaml"
+  rules_source: "google_sheets"
+
+  # Google Sheets configuration
+  google_sheets:
+    # Spreadsheet ID (defaults to master_sheet_id if not specified)
+    spreadsheet_id: "10H6uDqvYs2iBpwBDxH-zEfSrSMAq6J5JbjKVR5NkG_w"
+
+    # Tab names
+    rules_tab: "Categorization_Rules"
+    owner_mapping_tab: "Owner_Mapping"
+
+  # Caching configuration
+  cache_enabled: true
+  cache_file: "data/cache/sheets_rules.yaml"
+  cache_ttl_hours: 24  # Re-fetch from Sheets after 24 hours
+
 # Processing Configuration
 processing:
   # Batch size for writing to Sheets

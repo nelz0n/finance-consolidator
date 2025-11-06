@@ -68,6 +68,7 @@ categorization:
     # Tab names
     rules_tab: "Categorization_Rules"
     owner_mapping_tab: "Owner_Mapping"
+    categories_tab: "Categories"
 
   # Caching configuration
   cache_enabled: true

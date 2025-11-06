@@ -73,31 +73,154 @@ def get_choice(prompt: str, choices: List[str], default: Optional[str] = None) -
             print(f"  Please enter a number between 1 and {len(choices)}")
 
 
-def get_column_mappings(file_type: str) -> Dict[str, Any]:
-    """Get column mappings from user."""
+def get_description_mapping() -> tuple:
+    """
+    Helper to map description field with optional reference and note.
+
+    Returns:
+        (transformations_dict, mapping_name)
+    """
     print("\n" + "="*70)
-    print("COLUMN MAPPINGS")
+    print("DESCRIPTION MAPPING HELPER")
     print("="*70)
-    print("\nNow we'll map the columns from your file to standard fields.")
-    print("You can enter:")
-    print("  - Column names (for CSV with headers or XLSX)")
-    print("  - Column numbers/indices (for CSV without headers)")
+    print("\nThis helper will create a combined description field if needed.")
+
+    main_desc = get_input("Which column has the main description?")
+
+    has_ref = get_yes_no("Do you have a Reference field to include?", default=False)
+    ref_col = None
+    if has_ref:
+        ref_col = get_input("Which column contains the reference?")
+
+    has_note = get_yes_no("Do you have a Note field to include?", default=False)
+    note_col = None
+    if has_note:
+        note_col = get_input("Which column contains notes?")
+
+    # Build transformation if needed
+    if ref_col or note_col:
+        parts = [f"'{main_desc}'"]
+        if ref_col:
+            parts.append(f"' [Ref: ' + '{ref_col}' + ']'")
+        if note_col:
+            parts.append(f"' [Note: ' + '{note_col}' + ']'")
+
+        transformation_expr = " + ".join(parts)
+        transformation_name = "combined_description"
+
+        print(f"\n  -> Will create transformation: {transformation_name} = {transformation_expr}")
+
+        return ({transformation_name: transformation_expr}, transformation_name)
+    else:
+        # No transformation needed, just direct mapping
+        return ({}, main_desc)
+
+
+def get_counterparty_mapping() -> tuple:
+    """
+    Helper to map counterparty fields.
+
+    Returns:
+        (transformations_dict, account_mapping, name_mapping)
+    """
+    print("\n" + "="*70)
+    print("COUNTERPARTY MAPPING HELPER")
+    print("="*70)
+    print("\nThis helper will map counterparty information.")
+
+    has_account = get_yes_no("Do you have counterparty account number?", default=False)
+    account_col = None
+    if has_account:
+        account_col = get_input("Which column contains the account number?")
+
+    has_bank = get_yes_no("Do you have counterparty bank code?", default=False)
+    bank_col = None
+    if has_bank:
+        bank_col = get_input("Which column contains the bank code?")
+
+    has_name = get_yes_no("Do you have counterparty name?", default=False)
+    name_col = None
+    if has_name:
+        name_col = get_input("Which column contains the counterparty name?")
+
+    transformations = {}
+    account_mapping = None
+    name_mapping = None
+
+    # Build transformation for account+bank if both present
+    if account_col and bank_col:
+        transformation_expr = f"'{account_col}' + '/' + '{bank_col}'"
+        transformation_name = "combined_counterparty_account"
+        transformations[transformation_name] = transformation_expr
+        account_mapping = transformation_name
+        print(f"\n  -> Will create transformation: {transformation_name} = {transformation_expr}")
+    elif account_col:
+        account_mapping = account_col
+        print(f"\n  -> Will map counterparty_account directly to: {account_col}")
+
+    if name_col:
+        name_mapping = name_col
+        print(f"\n  -> Will map counterparty_name directly to: {name_col}")
+
+    return (transformations, account_mapping, name_mapping)
+
+
+def get_column_mappings(file_type: str, transformations: Dict[str, str] = None) -> tuple:
+    """
+    Get column mappings from user.
+
+    Returns:
+        (mappings_dict, helper_transformations_dict)
+    """
+    print("\n" + "="*70)
+    print("COLUMN MAPPINGS - MAP TO STANDARD FIELDS")
+    print("="*70)
+    print("\nNow we'll MAP columns to standard transaction fields.")
+
+    if transformations:
+        print("\n" + "-"*70)
+        print("AVAILABLE COLUMNS:")
+        print("  - Original columns from your file")
+        if any('+' in v for v in transformations.values()):
+            print("  - Array indices (0, 1, 2...) from split data")
+            print("    (Because you used structural transformations like A+B+C)")
+        else:
+            print("  - Transformed columns:", ", ".join(f"'{k}'" for k in transformations.keys()))
+        print("-"*70)
+
+    print("\nYou can enter:")
+    print("  - Column names (e.g., 'date', 'amount', 'full_name')")
+    print("  - Column numbers/indices (e.g., 0, 1, 2 - for split data)")
     print("  - Leave blank to skip optional fields")
 
     mappings = {}
+    helper_transformations = {}
 
     # Required fields
     print("\n--- Required Fields ---")
     mappings['date'] = get_input("Date column")
     mappings['amount'] = get_input("Amount column")
     mappings['currency'] = get_input("Currency column", default="CZK")
-    mappings['description'] = get_input("Description column")
+
+    # Description with helper
+    desc_trans, desc_mapping = get_description_mapping()
+    mappings['description'] = desc_mapping
+    helper_transformations.update(desc_trans)
+
+    # Counterparty with helper
+    cp_trans, cp_account, cp_name = get_counterparty_mapping()
+    if cp_account:
+        mappings['counterparty_account'] = cp_account
+    if cp_name:
+        mappings['counterparty_name'] = cp_name
+    helper_transformations.update(cp_trans)
 
     # Optional fields
     print("\n--- Optional Fields ---")
+    mappings['variable_symbol'] = get_input("Variable symbol column (optional)", required=False)
+    mappings['transaction_type'] = get_input("Transaction type column (optional)", required=False)
     mappings['category'] = get_input("Category column (optional)", required=False)
     mappings['transaction_id'] = get_input("Transaction ID column (optional)", required=False)
-    mappings['balance'] = get_input("Balance column (optional)", required=False)
 
     # Check if using numeric indices
     sample_key = mappings['date']
@@ -114,31 +237,48 @@ def get_column_mappings(file_type: str) -> Dict[str, Any]:
     except ValueError:
         print("\n  Using column names.")
 
-    return mappings
+    return (mappings, helper_transformations)
 
 
 def get_transformations() -> Dict[str, str]:
     """Get column transformations."""
     print("\n" + "="*70)
-    print("TRANSFORMATIONS")
+    print("TRANSFORMATIONS - CREATE NEW COLUMNS")
     print("="*70)
-    print("\nDo you need any column transformations?")
-    print("Examples:")
-    print("  - Concatenate columns: 'A' + 'B' + 'C' + 'D'")
-    print("  - Strip text: strip('xyz')")
-    print("  - Replace text: replace('old', 'new')")
+    print("\nTransformations allow you to CREATE NEW COLUMNS by combining or")
+    print("modifying existing columns. The name you give becomes the new column header.")
+    print("\n" + "-"*70)
+    print("STRUCTURAL TRANSFORMATIONS (for combining columns):")
+    print("  - Concatenate Excel columns: 'A' + 'B' + 'C' + 'D'")
+    print("    Example: 'merged_data' = 'A' + 'B' + 'C' + 'D'")
+    print("    Creates a new column called 'merged_data' with combined content")
+    print("    NOTE: After this, column mapping uses ARRAY INDICES (0, 1, 2...)")
+    print("\n  - Split and extract: split(';')[0]")
+    print("    Splits by delimiter and takes the specified index")
+    print("\nFORMAT TRANSFORMATIONS (for cleaning data):")
+    print("  - Strip characters: strip('xyz')")
+    print("    Example: 'currency' = strip('\"')  (removes quotes)")
+    print("\n  - Replace text: replace('old', 'new')")
+    print("    Example: 'amount' = replace(' ', '')  (removes spaces)")
+    print("\nCOMBINING REGULAR COLUMNS:")
+    print("  - Join CSV columns: 'first_name' + ' ' + 'last_name'")
+    print("    Example: 'full_name' = 'first_name' + ' ' + 'last_name'")
+    print("    Creates new column 'full_name' you can use in mapping")
+    print("-"*70)
 
     if not get_yes_no("\nAdd transformations?", default=False):
         return {}
 
     transformations = {}
+    print("\nEnter transformations (the NAME you choose becomes the column header):")
     while True:
-        column = get_input("\nColumn to transform (or press Enter to finish)", required=False)
+        column = get_input("\nNew column name to create (or press Enter to finish)", required=False)
         if not column:
             break
 
-        transform = get_input(f"Transformation for '{column}'")
+        transform = get_input(f"Transformation expression for '{column}'")
         transformations[column] = transform
+        print(f"  -> Will create column '{column}' = {transform}")
 
     return transformations
 
@@ -223,11 +363,21 @@ def create_config() -> Dict[str, Any]:
     print("="*70)
     print("\nThis wizard will help you create a configuration file for a new")
     print("financial institution. You'll need a sample export file to reference.")
+    print("\n" + "-"*70)
+    print("QUICK GUIDE - Two-Step Process:")
+    print("  1. TRANSFORMATIONS - CREATE new columns by combining/modifying data")
+    print("     Example: Create 'full_name' from 'first_name' + 'last_name'")
+    print("     The names you choose become column headers you can reference")
+    print()
+    print("  2. COLUMN MAPPING - MAP columns to standard field names")
+    print("     Example: Map 'full_name' -> description field")
+    print("     This is just assignment, not creating new columns")
+    print("-"*70)
     print()
 
     # Basic information
     print("\n--- BASIC INFORMATION ---")
-    name = get_input("Institution name (e.g., 'ČSOB', 'Wise')")
+    name = get_input("Institution name (e.g., 'Raiffeisenbank', 'Wise')")
     inst_type = get_choice(
         "Institution type:",
         ["bank", "investment", "payment_platform"],
@@ -291,11 +441,23 @@ def create_config() -> Dict[str, Any]:
             skip_rows = int(get_input("Number of rows to skip", default="0"))
             format_config['skip_rows'] = skip_rows
 
-    # Column mappings
-    columns = get_column_mappings(file_type)
-
-    # Transformations
+    # Transformations (get this first!)
     transformations = get_transformations()
+
+    # Show what was created
+    if transformations:
+        print("\n" + "="*70)
+        print("TRANSFORMATION SUMMARY")
+        print("="*70)
+        print("Created the following new columns:")
+        for col_name, expr in transformations.items():
+            print(f"  - '{col_name}' = {expr}")
+        print("\nYou can now use these column names in the mapping step.")
+        print("="*70)
+
+    # Column mappings (now we can reference transformed columns)
+    # Returns: (mappings, helper_transformations)
+    columns, helper_transformations = get_column_mappings(file_type, transformations)
 
     # Date format
     print("\n--- DATE FORMAT ---")
@@ -326,19 +488,40 @@ def create_config() -> Dict[str, Any]:
             'type': inst_type,
             'country': country
         },
-        'file_patterns': patterns,
-        'format': {
-            'type': file_type,
+        'file_detection': {
+            'filename_patterns': patterns
+        },
+        'csv_format': {
             **format_config
         },
-        'columns': columns,
-        'date_format': date_format,
-        'amount_format': amount_format,
+        'column_mapping': columns,
         'owner_detection': owner_config
     }
 
+    # Build transformations section
+    trans_section = {}
+
+    # Add date transformation
+    if date_format:
+        trans_section['date'] = {'format': date_format}
+
+    # Add amount transformation
+    if amount_format:
+        trans_section['amount'] = amount_format
+
+    # Add helper transformations (from description/counterparty helpers)
+    if helper_transformations:
+        for key, value in helper_transformations.items():
+            trans_section[key] = value
+
+    # Add custom transformations (like A+B+C)
     if transformations:
-        config['transformations'] = transformations
+        # Merge with custom transformations
+        for key, value in transformations.items():
+            trans_section[key] = value
+
+    if trans_section:
+        config['transformations'] = trans_section
 
     if category_mapping:
         config['category_mapping'] = category_mapping

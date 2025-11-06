@@ -70,8 +70,9 @@ class TransactionCategorizer:
         self.learning_enabled = self.config.get('learning', {}).get('enabled', False)
         self.learned_rules = self._load_learned_rules()
 
-        # Category tree (for AI context)
-        self.category_tree = self.config.get('category_tree', [])
+        # Category tree (for AI context) - load from Sheets or YAML
+        self.category_tree = []
+        self._load_category_tree()
 
         # Gemini API client (lazy init)
         self._gemini_client = None
@@ -281,6 +282,102 @@ class TransactionCategorizer:
 
         except Exception as e:
             logger.warning(f"Error saving cache: {e}")
+
+    def _load_category_tree(self):
+        """Load category tree from Google Sheets or YAML."""
+        cat_config = self.settings.get('categorization', {})
+        rules_source = cat_config.get('rules_source', 'yaml')
+
+        if rules_source == 'google_sheets':
+            logger.info("Loading category tree from Google Sheets...")
+            self.category_tree = self._load_category_tree_from_sheets()
+        else:
+            logger.info("Loading category tree from YAML...")
+            self.category_tree = self.config.get('category_tree', [])
+
+        if self.category_tree:
+            logger.info(f"Loaded category tree with {len(self.category_tree)} tier1 categories")
+
+    def _load_category_tree_from_sheets(self) -> List[Dict]:
+        """
+        Load category tree from Google Sheets Categories tab.
+
+        Returns:
+            List of tier1 categories with nested tier2 and tier3
+        """
+        try:
+            from src.connectors.google_sheets import GoogleSheetsConnector
+
+            cat_config = self.settings.get('categorization', {})
+            sheets_config = cat_config.get('google_sheets', {})
+            spreadsheet_id = sheets_config.get('spreadsheet_id',
+                                              self.settings.get('google_sheets', {}).get('master_sheet_id'))
+            categories_tab = sheets_config.get('categories_tab', 'Categories')
+
+            # Get credentials paths
+            creds_path = self.settings.get('google_drive', {}).get('credentials_path')
+            token_path = self.settings.get('google_drive', {}).get('token_path')
+
+            # Connect to Google Sheets
+            connector = GoogleSheetsConnector(creds_path, token_path)
+            if not connector.authenticate():
+                logger.error("Failed to authenticate with Google Sheets")
+                return []
+
+            # Load categories (columns A-C: Tier1, Tier2, Tier3)
+            categories_data = connector.read_sheet(spreadsheet_id, f"{categories_tab}!A:C")
+            if not categories_data or len(categories_data) < 2:
+                logger.warning(f"No categories found in {categories_tab}")
+                return []
+
+            # Parse into hierarchical structure
+            category_tree = {}  # tier1 -> tier2 -> [tier3]
+
+            # Skip header row
+            for row in categories_data[1:]:
+                if len(row) < 3:
+                    continue
+
+                tier1 = row[0].strip() if row[0] else ""
+                tier2 = row[1].strip() if row[1] else ""
+                tier3 = row[2].strip() if row[2] else ""
+
+                if not tier1 or not tier2 or not tier3:
+                    continue
+
+                # Build hierarchy
+                if tier1 not in category_tree:
+                    category_tree[tier1] = {}
+
+                if tier2 not in category_tree[tier1]:
+                    category_tree[tier1][tier2] = []
+
+                if tier3 not in category_tree[tier1][tier2]:
+                    category_tree[tier1][tier2].append(tier3)
+
+            # Convert to expected format
+            result = []
+            for tier1, tier2_dict in category_tree.items():
+                tier2_categories = []
+                for tier2, tier3_list in tier2_dict.items():
+                    tier2_categories.append({
+                        'tier2': tier2,
+                        'tier3': tier3_list
+                    })
+
+                result.append({
+                    'tier1': tier1,
+                    'tier2_categories': tier2_categories
+                })
+
+            logger.info(f"Loaded category tree from Google Sheets: {len(result)} tier1 categories")
+            return result
+
+        except Exception as e:
+            logger.error(f"Error loading category tree from Google Sheets: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return []
 
     def _load_learned_rules(self) -> List[Dict]:
         """Load learned rules from cache."""

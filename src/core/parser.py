@@ -130,7 +130,7 @@ class FileParser:
                         row = self._apply_transformations(row)
 
                     # Map columns to standard fields
-                    transaction = self._map_columns(row, column_mapping)
+                    transaction = self._map_columns(row, column_mapping, file_path)
 
                     if transaction:
                         transactions.append(transaction)
@@ -223,7 +223,7 @@ class FileParser:
                         row_dict = self._apply_transformations(row_dict)
 
                     # Map columns to standard fields
-                    transaction = self._map_columns(row_dict, column_mapping)
+                    transaction = self._map_columns(row_dict, column_mapping, file_path)
 
                     if transaction:
                         transactions.append(transaction)
@@ -294,7 +294,7 @@ class FileParser:
                 row_dict['account'] = account_number
 
             # Map columns to standard fields
-            transaction = self._map_columns(row_dict, column_mapping)
+            transaction = self._map_columns(row_dict, column_mapping, file_path)
 
             if transaction:
                 transactions.append(transaction)
@@ -375,13 +375,14 @@ class FileParser:
 
         return row
 
-    def _map_columns(self, row: Dict[str, Any], column_mapping: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _map_columns(self, row: Dict[str, Any], column_mapping: Dict[str, Any], file_path: str = None) -> Optional[Dict[str, Any]]:
         """
         Map CSV columns to standard transaction fields.
 
         Args:
             row: Raw row dictionary from CSV
             column_mapping: Column mapping from config
+            file_path: Optional file path for extract_from_filename feature
 
         Returns:
             Mapped transaction dictionary or None if invalid
@@ -411,7 +412,16 @@ class FileParser:
         defaults = column_mapping.get('defaults', {})
         for field, default_value in defaults.items():
             if field not in transaction or not transaction[field]:
-                transaction[field] = default_value
+                # Handle special "extract_from_filename" directive
+                if default_value == "extract_from_filename" and file_path:
+                    extracted_value = self._extract_account_from_filename(Path(file_path).name)
+                    # Append bank code if configured
+                    if extracted_value and 'account_bank_code' in defaults:
+                        bank_code = defaults['account_bank_code']
+                        extracted_value = f"{extracted_value}/{bank_code}"
+                    transaction[field] = extracted_value if extracted_value else ''
+                else:
+                    transaction[field] = default_value
 
         # Skip empty transactions
         if not transaction.get('date') and not transaction.get('amount'):

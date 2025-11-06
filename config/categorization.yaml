@@ -85,6 +85,10 @@ ai_fallback:
     requests_per_minute: 10  # Conservative
     requests_per_day: 1000
 
+  # Retry configuration for failed API calls
+  max_retries: 3  # Number of retry attempts for failed calls
+  retry_base_delay: 2  # Base delay in seconds (exponential backoff: 2s, 4s, 8s)
+
   # Prompt template
   prompt_template: |
     You are a financial transaction categorizer for Czech household expenses.

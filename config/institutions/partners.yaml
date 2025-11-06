@@ -57,9 +57,10 @@ columns:
   # Internal fields for processing
   _direction: "Směr úhrady"  # Příchozí/Odchozí
 
-  # Defaults: Extract account from filename
+  # Defaults: Extract account from filename and append bank code
   defaults:
     account: "extract_from_filename"
+    account_bank_code: "6363"  # Partners Bank code (will be appended as /6363)
 
 filtering:
   exclude_descriptions: []

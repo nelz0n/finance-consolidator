@@ -82,8 +82,8 @@ class DataNormalizer:
         # Strip quotes
         cleaned = cleaned.strip('"').strip("'")
 
-        # If result is empty or just quotes, return empty string
-        if not cleaned or cleaned == '""' or cleaned == "''":
+        # If result is empty, just quotes, or just a single "/", return empty string
+        if not cleaned or cleaned == '""' or cleaned == "''" or cleaned == '/':
             return ''
 
         return cleaned

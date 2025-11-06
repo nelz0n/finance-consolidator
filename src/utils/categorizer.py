@@ -12,10 +12,12 @@ import re
 import os
 import json
 import yaml
+import time
 from pathlib import Path
 from typing import Dict, Optional, Tuple, List, Any
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from collections import deque
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +75,11 @@ class TransactionCategorizer:
 
         # Same-day transaction cache for detecting opposite amounts
         self._daily_transactions = {}
+
+        # Rate limiting for API calls
+        self._api_call_timestamps = deque()  # Track timestamps of API calls
+        self._daily_api_calls = 0
+        self._daily_reset_time = None
 
         logger.info("Transaction categorizer initialized")
 
@@ -818,13 +825,68 @@ class TransactionCategorizer:
 
         return '\n'.join(lines)
 
+    def _wait_for_rate_limit(self):
+        """
+        Enforce rate limiting before making API call.
+
+        Uses token bucket algorithm with both per-minute and per-day limits.
+        """
+        rate_limit_config = self.ai_config.get('rate_limit', {})
+        requests_per_minute = rate_limit_config.get('requests_per_minute', 10)
+        requests_per_day = rate_limit_config.get('requests_per_day', 1000)
+
+        current_time = time.time()
+
+        # Check daily limit
+        if self._daily_reset_time is None or current_time >= self._daily_reset_time:
+            # Reset daily counter (resets at midnight or after 24h)
+            self._daily_api_calls = 0
+            self._daily_reset_time = current_time + 86400  # 24 hours
+
+        if self._daily_api_calls >= requests_per_day:
+            logger.error(f"Daily API limit reached ({requests_per_day} calls/day)")
+            raise Exception(f"Daily API limit of {requests_per_day} calls reached")
+
+        # Remove timestamps older than 1 minute
+        minute_ago = current_time - 60
+        while self._api_call_timestamps and self._api_call_timestamps[0] < minute_ago:
+            self._api_call_timestamps.popleft()
+
+        # Check per-minute limit
+        if len(self._api_call_timestamps) >= requests_per_minute:
+            # Calculate wait time until oldest call falls out of window
+            wait_time = 60 - (current_time - self._api_call_timestamps[0])
+            if wait_time > 0:
+                logger.info(f"Rate limit: waiting {wait_time:.1f}s before next API call")
+                time.sleep(wait_time)
+                # Clean up old timestamps after waiting
+                current_time = time.time()
+                minute_ago = current_time - 60
+                while self._api_call_timestamps and self._api_call_timestamps[0] < minute_ago:
+                    self._api_call_timestamps.popleft()
+
+        # Record this call
+        self._api_call_timestamps.append(current_time)
+        self._daily_api_calls += 1
+
     def _call_gemini_api(self, prompt: str) -> str:
-        """Call Gemini API with prompt."""
+        """
+        Call Gemini API with prompt, including rate limiting and retry logic.
+
+        Implements:
+        - Rate limiting (requests per minute/day)
+        - Exponential backoff for 429 errors
+        - Configurable retry attempts
+        """
         import requests
 
         api_base_url = self.ai_config.get('api_url')
         model = self.ai_config.get('model', 'gemini-1.5-flash')
         api_key = self._gemini_api_key
+
+        # Retry configuration
+        max_retries = self.ai_config.get('max_retries', 3)
+        base_delay = self.ai_config.get('retry_base_delay', 2)  # seconds
 
         # Construct full URL: base_url/models/model_name:generateContent
         url = f"{api_base_url}/models/{model}:generateContent"
@@ -841,15 +903,49 @@ class TransactionCategorizer:
             "x-goog-api-key": api_key
         }
 
-        response = requests.post(url, json=payload, headers=headers, timeout=30)
-        response.raise_for_status()
+        # Retry loop with exponential backoff
+        for attempt in range(max_retries):
+            try:
+                # Wait for rate limit before making call
+                self._wait_for_rate_limit()
 
-        data = response.json()
+                # Make API request
+                response = requests.post(url, json=payload, headers=headers, timeout=30)
+                response.raise_for_status()
 
-        # Extract text from response
-        text = data.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', '')
+                data = response.json()
 
-        return text
+                # Extract text from response
+                text = data.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', '')
+
+                return text
+
+            except requests.exceptions.HTTPError as e:
+                if e.response.status_code == 429:
+                    # Rate limit error - apply exponential backoff
+                    if attempt < max_retries - 1:
+                        wait_time = base_delay * (2 ** attempt)
+                        logger.warning(f"429 Rate limit hit, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        logger.error(f"429 Rate limit error after {max_retries} attempts")
+                        raise
+                else:
+                    # Other HTTP error - don't retry
+                    logger.error(f"HTTP error {e.response.status_code}: {e}")
+                    raise
+
+            except Exception as e:
+                logger.error(f"API call failed on attempt {attempt + 1}/{max_retries}: {e}")
+                if attempt < max_retries - 1:
+                    wait_time = base_delay * (2 ** attempt)
+                    logger.info(f"Retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
+                    raise
+
+        raise Exception("API call failed after all retries")
 
     def _parse_ai_response(self, response: str) -> Tuple[str, str, str, int]:
         """

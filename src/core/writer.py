@@ -2,7 +2,6 @@
 
 from typing import List, Optional
 from src.models.transaction import Transaction
-from src.models.balance import Balance
 from src.connectors.google_sheets import GoogleSheetsConnector
 from src.utils.logger import get_logger
 
@@ -10,7 +9,7 @@ logger = get_logger()
 
 
 class SheetsWriter:
-    """Write transactions and balances to Google Sheets."""
+    """Write transactions to Google Sheets."""
 
     def __init__(self, sheets_connector: GoogleSheetsConnector, spreadsheet_id: str):
         """
@@ -132,129 +131,18 @@ class SheetsWriter:
             logger.error(f"Error writing transactions: {str(e)}")
             return False
 
-    def write_balances(
-        self,
-        balances: List[Balance],
-        tab_name: str = "Balances",
-        mode: str = "append"
-    ) -> bool:
-        """
-        Write balances to Google Sheets.
-
-        Args:
-            balances: List of Balance objects
-            tab_name: Name of the sheet tab
-            mode: "append" to add to existing data, "overwrite" to replace all data
-
-        Returns:
-            True if successful, False otherwise
-        """
-        if not balances:
-            logger.warning("No balances to write")
-            return True
-
-        logger.info(f"Writing {len(balances)} balances to {tab_name} (mode: {mode})")
-
-        try:
-            # Ensure tab exists
-            if not self.sheets.create_tab(self.spreadsheet_id, tab_name):
-                logger.error(f"Failed to create/verify tab: {tab_name}")
-                return False
-
-            # Convert balances to rows
-            headers = Balance.get_header()
-            rows = []
-
-            # Define numeric fields that should remain as numbers
-            numeric_fields = {'amount', 'amount_czk', 'units', 'price_per_unit', 'total_value'}
-
-            for bal in balances:
-                # Get dict and convert to list in header order
-                bal_dict = bal.to_dict()
-                row = []
-                for field in headers:
-                    value = bal_dict.get(field, '')
-                    # Keep numeric fields as numbers (float), convert rest to string
-                    if field in numeric_fields and value not in (None, '', 'None'):
-                        row.append(float(value))
-                    else:
-                        row.append(str(value) if value not in (None, 'None') else '')
-                rows.append(row)
-
-            logger.debug(f"Converted {len(rows)} balances to rows")
-
-            # Write based on mode
-            if mode == "overwrite":
-                # Clear existing data
-                logger.info("Clearing existing data...")
-                self.sheets.clear_sheet(self.spreadsheet_id, f"{tab_name}!A:Z")
-
-                # Write headers and data
-                all_data = [headers] + rows
-                success = self.sheets.write_sheet(
-                    self.spreadsheet_id,
-                    f"{tab_name}!A1",
-                    all_data
-                )
-
-            elif mode == "append":
-                # Check if we need to add headers
-                existing_data = self.sheets.read_sheet(
-                    self.spreadsheet_id,
-                    f"{tab_name}!A1:Z1"
-                )
-
-                # If sheet is empty OR first row doesn't match expected headers, add/fix headers
-                if not existing_data or (existing_data and existing_data[0] != headers):
-                    if existing_data:
-                        logger.warning("Header row missing or incorrect - adding proper headers")
-                    else:
-                        logger.info("Adding headers to empty sheet")
-
-                    self.sheets.write_sheet(
-                        self.spreadsheet_id,
-                        f"{tab_name}!A1",
-                        [headers]
-                    )
-
-                # Append data
-                success = self.sheets.append_sheet(
-                    self.spreadsheet_id,
-                    f"{tab_name}!A1",
-                    rows
-                )
-
-            else:
-                logger.error(f"Invalid mode: {mode}")
-                return False
-
-            if success:
-                logger.info(f"✅ Successfully wrote {len(balances)} balances")
-                return True
-            else:
-                logger.error("Failed to write balances")
-                return False
-
-        except Exception as e:
-            logger.error(f"Error writing balances: {str(e)}")
-            return False
-
     def write_batch(
         self,
         transactions: Optional[List[Transaction]] = None,
-        balances: Optional[List[Balance]] = None,
         transactions_tab: str = "Transactions",
-        balances_tab: str = "Balances",
         mode: str = "append"
     ) -> bool:
         """
-        Write both transactions and balances in batch.
+        Write transactions in batch.
 
         Args:
             transactions: List of Transaction objects
-            balances: List of Balance objects
             transactions_tab: Name of transactions tab
-            balances_tab: Name of balances tab
             mode: "append" or "overwrite"
 
         Returns:
@@ -268,11 +156,6 @@ class SheetsWriter:
             if not self.write_transactions(transactions, transactions_tab, mode):
                 success = False
                 logger.error("Failed to write transactions")
-
-        if balances:
-            if not self.write_balances(balances, balances_tab, mode):
-                success = False
-                logger.error("Failed to write balances")
 
         if success:
             logger.info("✅ Batch write completed successfully")
@@ -318,34 +201,26 @@ class SheetsWriter:
 
     def clear_all_data(
         self,
-        transactions_tab: str = "Transactions",
-        balances_tab: str = "Balances"
+        transactions_tab: str = "Transactions"
     ) -> bool:
         """
-        Clear all data from both tabs.
+        Clear all data from transactions tab.
 
         Args:
             transactions_tab: Name of transactions tab
-            balances_tab: Name of balances tab
 
         Returns:
             True if successful
         """
         logger.warning("Clearing all data from sheets")
 
-        success = True
-
         try:
-            if not self.sheets.clear_sheet(self.spreadsheet_id, f"{transactions_tab}!A:Z"):
-                success = False
-
-            if not self.sheets.clear_sheet(self.spreadsheet_id, f"{balances_tab}!A:Z"):
-                success = False
+            success = self.sheets.clear_sheet(self.spreadsheet_id, f"{transactions_tab}!A:Z")
 
             if success:
                 logger.info("✅ All data cleared")
             else:
-                logger.error("❌ Failed to clear some data")
+                logger.error("❌ Failed to clear data")
 
             return success
 

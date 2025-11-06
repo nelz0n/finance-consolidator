@@ -22,8 +22,7 @@ google_sheets:
   
   # Tab names in the master sheet
   transactions_tab: "Transactions"
-  balances_tab: "Balances"
-  
+
   # Create tabs if they don't exist
   auto_create_tabs: true
 

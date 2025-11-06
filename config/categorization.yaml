@@ -73,7 +73,7 @@ ai_fallback:
 
   # API Configuration
   api_key_env: "GEMINI_API_KEY"  # Read from environment variable
-  api_url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+  api_url: "https://generativelanguage.googleapis.com/v1beta"
 
   # Behavior
   confidence_threshold: 75  # Only accept if AI is >75% confident

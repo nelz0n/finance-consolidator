@@ -822,10 +822,12 @@ class TransactionCategorizer:
         """Call Gemini API with prompt."""
         import requests
 
-        api_url = self.ai_config.get('api_url')
+        api_base_url = self.ai_config.get('api_url')
+        model = self.ai_config.get('model', 'gemini-1.5-flash')
         api_key = self._gemini_api_key
 
-        url = f"{api_url}?key={api_key}"
+        # Construct full URL: base_url/models/model_name:generateContent
+        url = f"{api_base_url}/models/{model}:generateContent?key={api_key}"
 
         payload = {
             "contents": [{

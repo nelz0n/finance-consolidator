@@ -5,7 +5,6 @@ Handles 3-tier categorization with:
 1. Internal transfer detection
 2. Manual rules (from Google Sheets or YAML)
 3. Gemini AI fallback
-4. Learning system
 """
 
 import logging
@@ -27,10 +26,9 @@ class TransactionCategorizer:
 
     Priority order:
     1. Internal transfer detection
-    2. Manual rules (from config)
-    3. Learned patterns
-    4. Gemini AI fallback
-    5. Uncategorized
+    2. Manual rules (from Google Sheets or YAML)
+    3. Gemini AI fallback
+    4. Uncategorized
     """
 
     def __init__(self, config_path: str = "config/categorization.yaml",
@@ -65,10 +63,6 @@ class TransactionCategorizer:
         # AI configuration
         self.ai_config = self.config.get('ai_fallback', {})
         self.ai_enabled = self.ai_config.get('enabled', False)
-
-        # Learning system
-        self.learning_enabled = self.config.get('learning', {}).get('enabled', False)
-        self.learned_rules = self._load_learned_rules()
 
         # Category tree (for AI context) - load from Sheets or YAML
         self.category_tree = []
@@ -379,24 +373,6 @@ class TransactionCategorizer:
             logger.error(traceback.format_exc())
             return []
 
-    def _load_learned_rules(self) -> List[Dict]:
-        """Load learned rules from cache."""
-        if not self.learning_enabled:
-            return []
-
-        learned_file = Path(self.config.get('learning', {}).get('learned_rules_file',
-                                                                  'data/cache/learned_rules.yaml'))
-        if not learned_file.exists():
-            return []
-
-        try:
-            with open(learned_file, 'r', encoding='utf-8') as f:
-                rules = yaml.safe_load(f) or []
-            logger.info(f"Loaded {len(rules)} learned rules")
-            return rules
-        except Exception as e:
-            logger.warning(f"Could not load learned rules: {e}")
-            return []
 
     def categorize(self, transaction: Dict[str, Any]) -> Tuple[str, str, str, str, bool]:
         """
@@ -438,21 +414,14 @@ class TransactionCategorizer:
                 owner_from_rule = self._determine_owner(transaction)
             return (tier1, tier2, tier3, owner_from_rule, False)
 
-        # 3. Try learned rules
-        if self.learning_enabled:
-            result = self._apply_learned_rules(transaction)
-            if result:
-                owner = self._determine_owner(transaction)
-                return result + (owner, False)
-
-        # 4. Try AI fallback
+        # 3. Try AI fallback
         if self.ai_enabled:
             result = self._apply_ai_categorization(transaction)
             if result:
                 owner = self._determine_owner(transaction)
                 return result + (owner, False)
 
-        # 5. Default to uncategorized
+        # 4. Default to uncategorized
         logger.debug(f"No category found for: {transaction.get('description', '')[:50]}")
         owner = self._determine_owner(transaction)
         return ("Uncategorized", "Needs Review", "Unknown Transaction", owner, False)
@@ -750,14 +719,6 @@ class TransactionCategorizer:
             return True  # All conditions passed
 
         return False
-
-    def _apply_learned_rules(self, transaction: Dict[str, Any]) -> Optional[Tuple[str, str, str]]:
-        """Apply learned rules (same format as manual rules)."""
-        for rule in self.learned_rules:
-            if self._rule_matches(rule, transaction):
-                category = rule.get('category', {})
-                return (category.get('tier1'), category.get('tier2'), category.get('tier3'))
-        return None
 
     def _apply_ai_categorization(self, transaction: Dict[str, Any]) -> Optional[Tuple[str, str, str]]:
         """

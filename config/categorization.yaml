@@ -110,19 +110,3 @@ ai_fallback:
 
     Be conservative - if unsure, use "Uncategorized" > "Needs Review" > "Unknown Transaction" with low confidence.
 
-# ============================================================================
-# LEARNING SYSTEM (Build patterns over time)
-# ============================================================================
-learning:
-  enabled: true
-
-  # After N transactions with same pattern, auto-create rule
-  pattern_threshold: 3
-
-  # Patterns to learn
-  learn_from:
-    - ai_categorizations
-    - manual_corrections
-
-  # Auto-generated rules file
-  learned_rules_file: "data/cache/learned_rules.yaml"

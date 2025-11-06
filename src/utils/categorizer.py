@@ -374,7 +374,7 @@ class TransactionCategorizer:
             return []
 
 
-    def categorize(self, transaction: Dict[str, Any]) -> Tuple[str, str, str, str, bool]:
+    def categorize(self, transaction: Dict[str, Any]) -> Tuple[str, str, str, str, bool, str, Optional[int]]:
         """
         Categorize a transaction.
 
@@ -389,7 +389,9 @@ class TransactionCategorizer:
                 etc.
 
         Returns:
-            Tuple of (tier1, tier2, tier3, owner, is_internal_transfer)
+            Tuple of (tier1, tier2, tier3, owner, is_internal_transfer, categorization_source, ai_confidence)
+            - categorization_source: "internal_transfer", "manual_rule", "ai", or "uncategorized"
+            - ai_confidence: 0-100 if source is "ai", None otherwise
         """
         # 1. Check internal transfer
         if self._is_internal_transfer(transaction):
@@ -402,7 +404,9 @@ class TransactionCategorizer:
                 transfer_cat.get('tier2', 'Internal Transfer'),
                 transfer_cat.get('tier3', 'Between Own Accounts'),
                 owner,
-                True  # is_internal_transfer
+                True,  # is_internal_transfer
+                'internal_transfer',  # categorization_source
+                None  # ai_confidence
             )
 
         # 2. Try manual rules (now returns owner too)
@@ -412,19 +416,20 @@ class TransactionCategorizer:
             # If owner not in rule, use fallback
             if not owner_from_rule:
                 owner_from_rule = self._determine_owner(transaction)
-            return (tier1, tier2, tier3, owner_from_rule, False)
+            return (tier1, tier2, tier3, owner_from_rule, False, 'manual_rule', None)
 
         # 3. Try AI fallback
         if self.ai_enabled:
             result = self._apply_ai_categorization(transaction)
             if result:
+                tier1, tier2, tier3, confidence = result
                 owner = self._determine_owner(transaction)
-                return result + (owner, False)
+                return (tier1, tier2, tier3, owner, False, 'ai', confidence)
 
         # 4. Default to uncategorized
         logger.debug(f"No category found for: {transaction.get('description', '')[:50]}")
         owner = self._determine_owner(transaction)
-        return ("Uncategorized", "Needs Review", "Unknown Transaction", owner, False)
+        return ("Uncategorized", "Needs Review", "Unknown Transaction", owner, False, 'uncategorized', None)
 
     def _determine_owner(self, transaction: Dict[str, Any]) -> str:
         """
@@ -720,12 +725,12 @@ class TransactionCategorizer:
 
         return False
 
-    def _apply_ai_categorization(self, transaction: Dict[str, Any]) -> Optional[Tuple[str, str, str]]:
+    def _apply_ai_categorization(self, transaction: Dict[str, Any]) -> Optional[Tuple[str, str, str, int]]:
         """
         Use Gemini AI to categorize transaction.
 
         Returns:
-            (tier1, tier2, tier3) tuple if successful, None otherwise
+            (tier1, tier2, tier3, confidence) tuple if successful, None otherwise
         """
         try:
             if not self._gemini_client:
@@ -755,7 +760,7 @@ class TransactionCategorizer:
             if self.ai_config.get('cache_results', False):
                 self._cache_ai_result(transaction, (tier1, tier2, tier3))
 
-            return (tier1, tier2, tier3)
+            return (tier1, tier2, tier3, confidence)
 
         except Exception as e:
             logger.error(f"AI categorization failed: {e}")

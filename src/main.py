@@ -321,13 +321,15 @@ def main():
                         if txn:
                             # Apply categorization
                             txn_dict = txn.to_dict()
-                            tier1, tier2, tier3, owner, is_internal = categorizer.categorize(txn_dict)
+                            tier1, tier2, tier3, owner, is_internal, cat_source, ai_conf = categorizer.categorize(txn_dict)
 
                             # Update transaction with category info
                             txn.category_tier1 = tier1
                             txn.category_tier2 = tier2
                             txn.category_tier3 = tier3
                             txn.is_internal_transfer = is_internal
+                            txn.categorization_source = cat_source
+                            txn.ai_confidence = ai_conf
 
                             # Update owner (from rules or owner_mapping)
                             if owner:

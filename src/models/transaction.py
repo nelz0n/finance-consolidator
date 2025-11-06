@@ -31,6 +31,10 @@ class Transaction:
     # Internal transfer flag
     is_internal_transfer: Optional[bool] = False
 
+    # Categorization metadata
+    categorization_source: Optional[str] = None  # "manual_rule", "ai", "internal_transfer", "uncategorized"
+    ai_confidence: Optional[int] = None  # 0-100, only set if categorization_source == "ai"
+
     # Classification
     account: Optional[str] = None
     institution: Optional[str] = None
@@ -67,6 +71,8 @@ class Transaction:
             'category_tier2': self.category_tier2,
             'category_tier3': self.category_tier3,
             'is_internal_transfer': self.is_internal_transfer,
+            'categorization_source': self.categorization_source,
+            'ai_confidence': self.ai_confidence,
             'account': self.account,
             'institution': self.institution,
             'owner': self.owner,
@@ -93,6 +99,8 @@ class Transaction:
             'category_tier2',
             'category_tier3',
             'is_internal_transfer',
+            'categorization_source',
+            'ai_confidence',
             'account',
             'institution',
             'owner',

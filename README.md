@@ -22,9 +22,11 @@ Comprehensive financial data consolidation system for Czech institutions (ČSOB,
 - 🏷️ **3-tier categorization**: 100+ categories with smart auto-categorization
 - 📋 **34 pre-configured rules**: Czech merchants (Albert, Shell, ČEZ, O2, etc.)
 - 🔄 **Internal transfer detection**: Auto-identifies transfers between own accounts
-- 🤖 **AI-powered fallback**: Gemini Flash for unknown transactions
+- 🤖 **AI-powered fallback**: Gemini Flash with rate limiting & exponential backoff
+- 🚦 **Rate limiting**: 10 req/min, 1000/day with automatic retry logic
 - 📚 **Learning system**: Gets smarter over time from AI decisions
 - 💰 **CZK-based**: All amounts normalized to Czech Koruna
+- 🏦 **Account extraction**: Automatic bank code suffixes (Partners Bank: /6363)
 
 ---
 
@@ -328,11 +330,13 @@ Use Gemini Flash AI for unknown transactions:
    ```
 
 ### Features
-- Confidence threshold filtering (default: 75%)
-- Automatic caching of AI decisions
-- Learning system creates rules after 3+ occurrences
-- Rate limiting built-in
-- Free tier: 15 requests/min, 1,500/day
+- **Rate limiting**: Token bucket algorithm (10 req/min, 1000/day)
+- **Exponential backoff**: Automatic retry on 429 errors (2s, 4s, 8s)
+- **Daily quota tracking**: Prevents exceeding free tier limits
+- **Confidence threshold filtering**: Default 75% minimum confidence
+- **Automatic caching**: AI decisions cached permanently
+- **Learning system**: Creates rules after 3+ identical categorizations
+- **Free tier**: 15 requests/min, 1,500/day (Google Gemini)
 
 ### Configuration
 ```yaml
@@ -341,6 +345,11 @@ ai_fallback:
   enabled: true
   confidence_threshold: 75
   cache_results: true
+  rate_limit:
+    requests_per_minute: 10
+    requests_per_day: 1000
+  max_retries: 3
+  retry_base_delay: 2  # Exponential backoff: 2s, 4s, 8s
 ```
 
 ---
@@ -676,12 +685,11 @@ python scripts/test_full_pipeline.py
 
 ## 📚 Documentation
 
-- **[QUICKSTART.md](QUICKSTART.md)** - Quick start guide
-- **[NEW_FEATURES_SUMMARY.md](NEW_FEATURES_SUMMARY.md)** - Complete feature documentation
-- **[COMPLETION_SUMMARY.md](COMPLETION_SUMMARY.md)** - Implementation report
-- **[CLAUDE.md](CLAUDE.md)** - Development commands and architecture
-- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - System architecture
-- **[IMPLEMENTATION_GUIDE.md](IMPLEMENTATION_GUIDE.md)** - Implementation details
+- **[QUICKSTART.md](QUICKSTART.md)** - Quick start guide for new users
+- **[CLAUDE.md](CLAUDE.md)** - Developer commands and project overview
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture and data flow
+- **[docs/GOOGLE_DRIVE_CONNECTOR.md](docs/GOOGLE_DRIVE_CONNECTOR.md)** - Drive API reference
+- **[docs/GOOGLE_SHEETS_CONNECTOR.md](docs/GOOGLE_SHEETS_CONNECTOR.md)** - Sheets API reference
 
 ---
 

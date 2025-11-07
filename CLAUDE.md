@@ -71,6 +71,11 @@ python scripts/add_institution.py
 
 **Utilities** (`src/utils/`)
 - `CurrencyConverter` - Multi-currency conversion with configurable rates (CZK ↔ EUR)
+- `CNBExchangeRates` - Real-time exchange rates from Czech National Bank API
+- `TransactionCategorizer` - 3-tier categorization with AI fallback
+  - **NEW**: Rate limiting (10 req/min, 1000/day) with token bucket algorithm
+  - **NEW**: Exponential backoff retry logic for 429 errors (2s, 4s, 8s delays)
+  - **NEW**: Daily quota tracking to prevent exceeding API limits
 - `date_parser` - Handles multiple date formats across institutions
 - `logger` - Centralized logging configuration
 
@@ -83,7 +88,10 @@ python scripts/add_institution.py
   - Automatically routes to correct parser based on `format.type` configuration
   - Applies transformations (concatenate, strip, replace, split) before mapping
   - Special handling for Partners Bank (concatenated columns A-D)
+  - **NEW**: `extract_from_filename` - Extracts account from filename (e.g., vypis_1330299329_*.xlsx → 1330299329)
+  - **NEW**: `account_bank_code` - Auto-appends bank code suffix (e.g., /6363 for Partners Bank → 1330299329/6363)
 - `DataNormalizer` - Converts raw data to Transaction objects
+  - **NEW**: Treats "/" as empty value in field cleaning (prevents "/" in empty counterparty_account)
 - `SheetsWriter` - Writes data to Google Sheets with append/overwrite modes
 
 ### Configuration System
@@ -117,7 +125,8 @@ Each institution has a YAML config with:
 **Partners Bank**
 - XLSX format (not CSV)
 - Data split across columns A-D, must concatenate then split by semicolon
-- Extract account number from filename: `vypis_(\d+)_`
+- Extract account number from filename: `vypis_(\d+)_` (e.g., vypis_1330299329_*.xlsx)
+- **NEW**: Auto-appends bank code /6363 via `account_bank_code` config (1330299329 → 1330299329/6363)
 - Date format: `d. m. Y` (with spaces)
 - Amount format: `-1 000,00`
 

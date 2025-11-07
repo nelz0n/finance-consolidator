@@ -329,6 +329,15 @@ class DataNormalizer:
                 for pattern in remove_patterns:
                     value = re.sub(pattern, '', value)
 
+                # Clean up empty brackets from combined descriptions
+                # Remove patterns like [Msg: ], [Note: ], [Ref: ]
+                value = re.sub(r'\[Msg:\s*\]', '', value)
+                value = re.sub(r'\[Note:\s*\]', '', value)
+                value = re.sub(r'\[Ref:\s*\]', '', value)
+
+                # Clean up extra spaces and trim
+                value = ' '.join(value.split())
+
                 return value.strip()
 
         # Default fallback

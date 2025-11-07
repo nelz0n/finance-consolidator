@@ -73,6 +73,10 @@ class TransactionCategorizer:
         # Gemini API client (lazy init)
         self._gemini_client = None
 
+        # Historical data for AI context
+        self.historical_data = []
+        self._load_historical_data()
+
         # Same-day transaction cache for detecting opposite amounts
         self._daily_transactions = {}
 
@@ -380,6 +384,63 @@ class TransactionCategorizer:
             logger.error(traceback.format_exc())
             return []
 
+    def _load_historical_data(self):
+        """Load historical transaction data from Excel file for AI context."""
+        hist_config = self.ai_config.get('historical_data', {})
+
+        if not hist_config.get('enabled', False):
+            logger.info("Historical data loading disabled")
+            return
+
+        file_path = hist_config.get('file_path')
+        if not file_path or not Path(file_path).exists():
+            logger.warning(f"Historical data file not found: {file_path}")
+            return
+
+        try:
+            import openpyxl
+
+            sheet_name = hist_config.get('sheet_name', 'Sheet1')
+            columns = hist_config.get('columns', {})
+
+            logger.info(f"Loading historical data from {file_path}...")
+
+            wb = openpyxl.load_workbook(file_path, data_only=True)
+            ws = wb[sheet_name] if sheet_name in wb.sheetnames else wb.active
+
+            # Read header row
+            header = [cell.value for cell in ws[1]]
+
+            # Find column indices
+            date_col = header.index(columns.get('date', 'Datum')) if columns.get('date') in header else None
+            category_col = header.index(columns.get('category', 'Kategoria')) if columns.get('category') in header else None
+            amount_col = header.index(columns.get('amount', 'Suma')) if columns.get('amount') in header else None
+            description_col = header.index(columns.get('description', 'Detail')) if columns.get('description') in header else None
+
+            # Load data rows
+            for row_num in range(2, ws.max_row + 1):
+                row = list(ws[row_num])
+
+                if date_col is not None and category_col is not None:
+                    entry = {
+                        'date': str(row[date_col].value) if date_col < len(row) and row[date_col].value else '',
+                        'category': str(row[category_col].value) if category_col < len(row) and row[category_col].value else '',
+                        'amount': str(row[amount_col].value) if amount_col is not None and amount_col < len(row) and row[amount_col].value else '',
+                        'description': str(row[description_col].value) if description_col is not None and description_col < len(row) and row[description_col].value else ''
+                    }
+
+                    # Only add if we have category and description
+                    if entry['category'] and entry['description']:
+                        self.historical_data.append(entry)
+
+            wb.close()
+
+            logger.info(f"Loaded {len(self.historical_data)} historical transactions for AI context")
+
+        except Exception as e:
+            logger.error(f"Error loading historical data: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
 
     def categorize(self, transaction: Dict[str, Any]) -> Tuple[str, str, str, str, bool, str, Optional[int]]:
         """
@@ -793,6 +854,9 @@ class TransactionCategorizer:
         # Get category tree summary
         category_summary = self._get_category_tree_summary()
 
+        # Get historical examples
+        historical_examples = self._get_historical_examples(transaction)
+
         # Build prompt from template
         template = self.ai_config.get('prompt_template', '')
 
@@ -803,7 +867,8 @@ class TransactionCategorizer:
             description=transaction.get('description', ''),
             counterparty_name=transaction.get('counterparty_name', ''),
             counterparty_account=transaction.get('counterparty_account', ''),
-            category_tree_summary=category_summary
+            category_tree_summary=category_summary,
+            historical_examples=historical_examples
         )
 
         return prompt
@@ -822,6 +887,64 @@ class TransactionCategorizer:
                 if len(tier3_list) > 3:
                     tier3_sample += '...'
                 lines.append(f"  - {tier2}: {tier3_sample}")
+
+        return '\n'.join(lines)
+
+    def _get_historical_examples(self, transaction: Dict[str, Any]) -> str:
+        """
+        Get relevant historical examples for this transaction.
+
+        Finds similar transactions from historical data based on description matching.
+        """
+        if not self.historical_data:
+            return "No historical examples available."
+
+        hist_config = self.ai_config.get('historical_data', {})
+        max_examples = hist_config.get('max_examples', 20)
+
+        # Get transaction description for matching
+        txn_description = str(transaction.get('description', '')).lower()
+
+        if not txn_description:
+            # If no description, just return recent examples
+            examples = self.historical_data[:max_examples]
+        else:
+            # Find similar examples by keyword matching
+            scored_examples = []
+
+            for hist_txn in self.historical_data:
+                hist_desc = str(hist_txn.get('description', '')).lower()
+
+                # Simple scoring: count matching words
+                txn_words = set(txn_description.split())
+                hist_words = set(hist_desc.split())
+
+                if len(txn_words) > 0:
+                    # Calculate similarity score
+                    common_words = txn_words & hist_words
+                    score = len(common_words) / len(txn_words)
+
+                    if score > 0:  # Only include if there's some match
+                        scored_examples.append((score, hist_txn))
+
+            # Sort by score (highest first) and take top examples
+            scored_examples.sort(key=lambda x: x[0], reverse=True)
+            examples = [ex[1] for ex in scored_examples[:max_examples]]
+
+            # If we found no matches, just use first N examples
+            if not examples:
+                examples = self.historical_data[:max_examples]
+
+        # Format examples for prompt
+        lines = []
+        for i, example in enumerate(examples[:max_examples], 1):
+            lines.append(f"{i}. Description: {example['description'][:80]}")
+            lines.append(f"   Category: {example['category']}")
+            lines.append(f"   Amount: {example['amount']}")
+            lines.append("")
+
+        if not lines:
+            return "No historical examples available."
 
         return '\n'.join(lines)
 

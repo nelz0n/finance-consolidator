@@ -69,7 +69,7 @@ internal_transfers:
 ai_fallback:
   enabled: true
   provider: "gemini"
-  model: "gemini-2.5-flash"
+  model: "gemini-2.5-flash-lite"
 
   # API Configuration
   api_key_env: "GEMINI_API_KEY"  # Read from environment variable
@@ -79,6 +79,18 @@ ai_fallback:
   confidence_threshold: 75  # Only accept if AI is >75% confident
   cache_results: true
   cache_file: "data/cache/ai_category_cache.json"
+
+  # Historical data for context (examples of past categorizations)
+  historical_data:
+    enabled: true
+    file_path: "g:/My Drive/Finance/Old_data.xlsx"
+    sheet_name: "Sheet1"
+    columns:
+      date: "Datum"
+      category: "Kategoria"
+      amount: "Suma"
+      description: "Detail"
+    max_examples: 20  # Number of similar examples to include in prompt
 
   # Rate limiting (Gemini free tier: 15 req/min, 1500/day)
   rate_limit:
@@ -104,6 +116,9 @@ ai_fallback:
 
     Available categories (use EXACTLY these, do not invent new ones):
     {category_tree_summary}
+
+    Historical examples from past categorizations:
+    {historical_examples}
 
     Respond ONLY in this exact format:
     Tier1: [exact tier1 name]

@@ -94,8 +94,8 @@ ai_fallback:
 
   # Rate limiting (Gemini free tier: 15 req/min, 1500/day)
   rate_limit:
-    requests_per_minute: 10  # Conservative
-    requests_per_day: 1000
+    requests_per_minute: 15  # Conservative
+    requests_per_day: 1500
 
   # Retry configuration for failed API calls
   max_retries: 3  # Number of retry attempts for failed calls
@@ -117,7 +117,7 @@ ai_fallback:
     Available categories (use EXACTLY these, do not invent new ones):
     {category_tree_summary}
 
-    Historical examples from past categorizations:
+    Historical examples from past transaction of same household categorizied with old categories:
     {historical_examples}
 
     Respond ONLY in this exact format:

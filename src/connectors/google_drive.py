@@ -2,6 +2,7 @@
 
 import os
 import io
+import time
 from pathlib import Path
 from typing import List, Dict, Optional
 from fnmatch import fnmatch
@@ -123,13 +124,14 @@ class GoogleDriveConnector:
             logger.error(f"Error listing files: {str(e)}")
             return []
 
-    def download_file(self, file_id: str, destination: str) -> bool:
+    def download_file(self, file_id: str, destination: str, max_retries: int = 3) -> bool:
         """
-        Download a file from Google Drive to local path.
+        Download a file from Google Drive to local path with retry logic.
 
         Args:
             file_id: Google Drive file ID
             destination: Local destination path
+            max_retries: Maximum number of retry attempts (default: 3)
 
         Returns:
             True if download successful, False otherwise
@@ -138,39 +140,84 @@ class GoogleDriveConnector:
             logger.error("Not authenticated. Call authenticate() first.")
             return False
 
-        try:
-            logger.info(f"Downloading file {file_id} to {destination}")
+        # Create destination directory if it doesn't exist
+        os.makedirs(os.path.dirname(destination), exist_ok=True)
 
-            # Get file metadata to check name
-            file_metadata = self.service.files().get(fileId=file_id).execute()
-            file_name = file_metadata.get('name', 'unknown')
+        # Retry loop with exponential backoff
+        for attempt in range(max_retries):
+            fh = None
+            try:
+                if attempt > 0:
+                    logger.info(f"Retry attempt {attempt + 1}/{max_retries} for file {file_id}")
+                else:
+                    logger.info(f"Downloading file {file_id} to {destination}")
 
-            # Request file content
-            request = self.service.files().get_media(fileId=file_id)
+                # Get file metadata to check name and size
+                file_metadata = self.service.files().get(fileId=file_id, fields="name, size").execute()
+                file_name = file_metadata.get('name', 'unknown')
+                file_size = int(file_metadata.get('size', 0))
 
-            # Create destination directory if it doesn't exist
-            os.makedirs(os.path.dirname(destination), exist_ok=True)
+                logger.debug(f"File: {file_name}, Size: {file_size} bytes")
 
-            # Download file
-            fh = io.FileIO(destination, 'wb')
-            downloader = MediaIoBaseDownload(fh, request)
+                # Request file content with timeout
+                request = self.service.files().get_media(fileId=file_id)
 
-            done = False
-            while not done:
-                status, done = downloader.next_chunk()
-                if status:
-                    logger.debug(f"Download progress: {int(status.progress() * 100)}%")
+                # Configure chunk size based on file size
+                # Smaller chunks for better reliability on large files
+                chunk_size = 1024 * 1024  # 1MB chunks
 
-            fh.close()
-            logger.info(f"Successfully downloaded {file_name} to {destination}")
-            return True
+                # Download file
+                fh = io.FileIO(destination, 'wb')
+                downloader = MediaIoBaseDownload(fh, request, chunksize=chunk_size)
 
-        except HttpError as e:
-            logger.error(f"HTTP error downloading file: {str(e)}")
-            return False
-        except Exception as e:
-            logger.error(f"Error downloading file: {str(e)}")
-            return False
+                done = False
+                last_progress = 0
+                while not done:
+                    status, done = downloader.next_chunk()
+                    if status:
+                        progress = int(status.progress() * 100)
+                        if progress != last_progress:
+                            logger.debug(f"Download progress: {progress}%")
+                            last_progress = progress
+
+                fh.close()
+                fh = None
+
+                logger.info(f"Successfully downloaded {file_name} to {destination}")
+                return True
+
+            except HttpError as e:
+                if fh:
+                    fh.close()
+
+                logger.error(f"HTTP error downloading file (attempt {attempt + 1}/{max_retries}): {str(e)}")
+
+                # Don't retry on 404 or auth errors
+                if e.resp.status in [404, 401, 403]:
+                    logger.error(f"Non-retryable error: {e.resp.status}")
+                    return False
+
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                    logger.info(f"Waiting {wait_time}s before retry...")
+                    time.sleep(wait_time)
+                else:
+                    return False
+
+            except Exception as e:
+                if fh:
+                    fh.close()
+
+                logger.error(f"Error downloading file (attempt {attempt + 1}/{max_retries}): {str(e)}")
+
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                    logger.info(f"Waiting {wait_time}s before retry...")
+                    time.sleep(wait_time)
+                else:
+                    return False
+
+        return False
 
     def get_file_content(self, file_id: str) -> Optional[bytes]:
         """

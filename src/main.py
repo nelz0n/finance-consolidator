@@ -11,6 +11,7 @@ Orchestrates the entire pipeline:
 import argparse
 import sys
 import yaml
+import time
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from datetime import datetime, date
@@ -301,7 +302,13 @@ def main():
                     local_path = Path(temp_dir) / filename
                     logger.debug(f"Downloading to: {local_path}")
 
-                    drive.download_file(file_id, str(local_path))
+                    # Download with retry logic
+                    download_success = drive.download_file(file_id, str(local_path))
+                    if not download_success:
+                        logger.error(f"Failed to download {filename} after retries")
+                        failed_files += 1
+                        continue
+
                     logger.debug(f"✓ Downloaded ({file_info.get('size', 'unknown')} bytes)")
 
                     # Parse file
@@ -341,6 +348,10 @@ def main():
 
                     all_transactions.extend(file_transactions)
                     processed_files += 1
+
+                    # Small delay between files to avoid connection issues
+                    if processed_files < len(matched_files):
+                        time.sleep(0.5)  # 500ms delay
 
             except Exception as e:
                 logger.error(f"✗ Failed to process {filename}: {str(e)}")

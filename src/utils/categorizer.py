@@ -3,7 +3,7 @@ Transaction Categorization Engine
 
 Handles 3-tier categorization with:
 1. Internal transfer detection
-2. Manual rules (from Google Sheets or YAML)
+2. Manual rules (from Google Sheets, YAML, or Database)
 3. Gemini AI fallback
 """
 
@@ -73,13 +73,6 @@ class TransactionCategorizer:
         # Gemini API client (lazy init)
         self._gemini_client = None
 
-        # Historical data for AI context
-        self.historical_data = []
-        self._load_historical_data()
-
-        # Same-day transaction cache for detecting opposite amounts
-        self._daily_transactions = {}
-
         # Rate limiting for API calls
         self._api_call_timestamps = deque()  # Track timestamps of API calls
         self._daily_api_calls = 0
@@ -118,12 +111,15 @@ class TransactionCategorizer:
             return {}
 
     def _load_manual_rules(self):
-        """Load manual rules from Google Sheets or YAML."""
+        """Load manual rules from Database, Google Sheets, or YAML."""
         # Check if Google Sheets-based categorization is configured
         cat_config = self.settings.get('categorization', {})
         rules_source = cat_config.get('rules_source', 'yaml')
 
-        if rules_source == 'google_sheets':
+        if rules_source == 'database':
+            logger.info("Loading categorization rules from SQLite database...")
+            self.manual_rules, self.owner_mapping = self._load_rules_from_database()
+        elif rules_source == 'google_sheets':
             logger.info("Loading categorization rules from Google Sheets...")
             self.manual_rules, self.owner_mapping = self._load_rules_from_sheets()
         else:
@@ -179,7 +175,7 @@ class TransactionCategorizer:
                 return ([], {})
 
             # Load rules
-            rules_data = connector.read_sheet(spreadsheet_id, f"{rules_tab}!A:L")
+            rules_data = connector.read_sheet(spreadsheet_id, f"{rules_tab}!A:M")
             if not rules_data or len(rules_data) < 2:
                 logger.warning(f"No rules found in {rules_tab}")
                 return ([], {})
@@ -188,9 +184,9 @@ class TransactionCategorizer:
             headers = rules_data[0]
             rules = []
             for row in rules_data[1:]:
-                if len(row) < 12:
+                if len(row) < 13:
                     # Pad row with empty strings
-                    row = row + [''] * (12 - len(row))
+                    row = row + [''] * (13 - len(row))
 
                 rule = {
                     'priority': int(row[0]) if row[0] else 0,
@@ -199,12 +195,13 @@ class TransactionCategorizer:
                     'counterparty_account_exact': row[3].strip() if row[3] else '',
                     'counterparty_name_contains': row[4].strip() if row[4] else '',
                     'variable_symbol_exact': row[5].strip() if row[5] else '',
-                    'amount_czk_min': float(row[6]) if row[6] else None,
-                    'amount_czk_max': float(row[7]) if row[7] else None,
-                    'tier1': row[8].strip() if row[8] else '',
-                    'tier2': row[9].strip() if row[9] else '',
-                    'tier3': row[10].strip() if row[10] else '',
-                    'owner': row[11].strip() if row[11] else '',
+                    'type_contains': row[6].strip() if row[6] else '',
+                    'amount_czk_min': float(row[7]) if row[7] else None,
+                    'amount_czk_max': float(row[8]) if row[8] else None,
+                    'tier1': row[9].strip() if row[9] else '',
+                    'tier2': row[10].strip() if row[10] else '',
+                    'tier3': row[11].strip() if row[11] else '',
+                    'owner': row[12].strip() if row[12] else '',
                 }
                 rules.append(rule)
 
@@ -288,12 +285,71 @@ class TransactionCategorizer:
         except Exception as e:
             logger.warning(f"Error saving cache: {e}")
 
+    def _load_rules_from_database(self) -> Tuple[List[Dict], Dict[str, str]]:
+        """
+        Load categorization rules from SQLite database.
+
+        Returns:
+            Tuple of (rules list, owner mapping dict)
+        """
+        try:
+            from backend.database.connection import get_db_context
+            from backend.database.models import CategorizationRule, Owner
+
+            rules = []
+            owner_mapping = {}
+
+            with get_db_context() as db:
+                # Load categorization rules
+                db_rules = db.query(CategorizationRule).filter(
+                    CategorizationRule.is_active == True
+                ).all()
+
+                for rule in db_rules:
+                    # Parse JSON conditions
+                    conditions = json.loads(rule.conditions) if rule.conditions else {}
+
+                    rule_dict = {
+                        'name': rule.name,
+                        'priority': rule.priority or 0,
+                        'description': rule.description,
+                        'category_tier1': rule.category_tier1,
+                        'category_tier2': rule.category_tier2,
+                        'category_tier3': rule.category_tier3,
+                        'owner': None,  # Owner handled via owner_id FK
+                        'is_internal_transfer': rule.mark_as_internal,
+                        **conditions  # Merge conditions into rule dict
+                    }
+                    rules.append(rule_dict)
+
+                logger.info(f"Loaded {len(rules)} rules from SQLite database")
+
+                # Load owner mappings
+                owners = db.query(Owner).filter(Owner.is_active == True).all()
+                for owner in owners:
+                    # Owner mappings could be based on email or other attributes
+                    # For now, just use name mapping
+                    owner_mapping[owner.name] = owner.name
+
+                logger.info(f"Loaded {len(owner_mapping)} owner mappings from SQLite database")
+
+            return rules, owner_mapping
+
+        except Exception as e:
+            logger.error(f"Error loading rules from database: {e}")
+            import traceback
+            traceback.print_exc()
+            return [], {}
+
     def _load_category_tree(self):
-        """Load category tree from Google Sheets or YAML."""
+        """Load category tree from Database, Google Sheets, or YAML."""
         cat_config = self.settings.get('categorization', {})
         rules_source = cat_config.get('rules_source', 'yaml')
 
-        if rules_source == 'google_sheets':
+        if rules_source == 'database':
+            logger.info("Loading category tree from SQLite database...")
+            self.category_tree = self._load_category_tree_from_database()
+        elif rules_source == 'google_sheets':
             logger.info("Loading category tree from Google Sheets...")
             self.category_tree = self._load_category_tree_from_sheets()
         else:
@@ -340,25 +396,30 @@ class TransactionCategorizer:
 
             # Skip header row
             for row in categories_data[1:]:
-                if len(row) < 3:
-                    continue
+                # Pad row to 3 columns if needed (Google Sheets trims trailing empty cells)
+                while len(row) < 3:
+                    row.append('')
 
                 tier1 = row[0].strip() if row[0] else ""
-                tier2 = row[1].strip() if row[1] else ""
-                tier3 = row[2].strip() if row[2] else ""
+                tier2 = row[1].strip() if len(row) > 1 and row[1] else ""
+                tier3 = row[2].strip() if len(row) > 2 and row[2] else ""
 
-                if not tier1 or not tier2 or not tier3:
+                # Skip rows without tier1
+                if not tier1:
                     continue
 
                 # Build hierarchy
                 if tier1 not in category_tree:
                     category_tree[tier1] = {}
 
-                if tier2 not in category_tree[tier1]:
-                    category_tree[tier1][tier2] = []
+                # Only add tier2 if it exists
+                if tier2:
+                    if tier2 not in category_tree[tier1]:
+                        category_tree[tier1][tier2] = []
 
-                if tier3 not in category_tree[tier1][tier2]:
-                    category_tree[tier1][tier2].append(tier3)
+                    # Only add tier3 if it exists
+                    if tier3 and tier3 not in category_tree[tier1][tier2]:
+                        category_tree[tier1][tier2].append(tier3)
 
             # Convert to expected format
             result = []
@@ -384,65 +445,63 @@ class TransactionCategorizer:
             logger.error(traceback.format_exc())
             return []
 
-    def _load_historical_data(self):
-        """Load historical transaction data from Excel file for AI context."""
-        hist_config = self.ai_config.get('historical_data', {})
+    def _load_category_tree_from_database(self) -> List[Dict]:
+        """
+        Load category tree from SQLite database.
 
-        if not hist_config.get('enabled', False):
-            logger.info("Historical data loading disabled")
-            return
-
-        file_path = hist_config.get('file_path')
-        if not file_path or not Path(file_path).exists():
-            logger.warning(f"Historical data file not found: {file_path}")
-            return
-
+        Returns:
+            List of tier1 categories with their tier2/tier3 hierarchy
+        """
         try:
-            import openpyxl
+            from backend.database.connection import get_db_context
+            from backend.database.models import Category
 
-            sheet_name = hist_config.get('sheet_name', 'Sheet1')
-            columns = hist_config.get('columns', {})
+            with get_db_context() as db:
+                # Get all categories
+                db_categories = db.query(Category).all()
 
-            logger.info(f"Loading historical data from {file_path}...")
+                # Build hierarchical structure
+                category_tree = {}
+                for cat in db_categories:
+                    tier1 = cat.tier1
+                    tier2 = cat.tier2 or ""
+                    tier3 = cat.tier3 or ""
 
-            wb = openpyxl.load_workbook(file_path, data_only=True)
-            ws = wb[sheet_name] if sheet_name in wb.sheetnames else wb.active
+                    if tier1 not in category_tree:
+                        category_tree[tier1] = {}
 
-            # Read header row
-            header = [cell.value for cell in ws[1]]
+                    if tier2 and tier2 not in category_tree[tier1]:
+                        category_tree[tier1][tier2] = []
 
-            # Find column indices
-            date_col = header.index(columns.get('date', 'Datum')) if columns.get('date') in header else None
-            category_col = header.index(columns.get('category', 'Kategoria')) if columns.get('category') in header else None
-            amount_col = header.index(columns.get('amount', 'Suma')) if columns.get('amount') in header else None
-            description_col = header.index(columns.get('description', 'Detail')) if columns.get('description') in header else None
+                    if tier2 and tier3 and tier3 not in category_tree[tier1][tier2]:
+                        category_tree[tier1][tier2].append(tier3)
 
-            # Load data rows
-            for row_num in range(2, ws.max_row + 1):
-                row = list(ws[row_num])
+                # Convert to list format
+                result = []
+                for tier1, tier2_dict in category_tree.items():
+                    tier2_categories = []
+                    for tier2, tier3_list in tier2_dict.items():
+                        tier2_categories.append({
+                            'tier2': tier2,
+                            'tier3': tier3_list
+                        })
 
-                if date_col is not None and category_col is not None:
-                    entry = {
-                        'date': str(row[date_col].value) if date_col < len(row) and row[date_col].value else '',
-                        'category': str(row[category_col].value) if category_col < len(row) and row[category_col].value else '',
-                        'amount': str(row[amount_col].value) if amount_col is not None and amount_col < len(row) and row[amount_col].value else '',
-                        'description': str(row[description_col].value) if description_col is not None and description_col < len(row) and row[description_col].value else ''
-                    }
+                    result.append({
+                        'tier1': tier1,
+                        'tier2_categories': tier2_categories
+                    })
 
-                    # Only add if we have category and description
-                    if entry['category'] and entry['description']:
-                        self.historical_data.append(entry)
-
-            wb.close()
-
-            logger.info(f"Loaded {len(self.historical_data)} historical transactions for AI context")
+                logger.info(f"Loaded category tree from SQLite database: {len(result)} tier1 categories")
+                return result
 
         except Exception as e:
-            logger.error(f"Error loading historical data: {e}")
+            logger.error(f"Error loading category tree from database: {e}")
             import traceback
-            logger.error(traceback.format_exc())
+            traceback.print_exc()
+            return []
 
-    def categorize(self, transaction: Dict[str, Any]) -> Tuple[str, str, str, str, bool, str, Optional[int]]:
+
+    def categorize(self, transaction: Dict[str, Any], disable_ai: bool = False) -> Tuple[str, str, str, str, bool, str, Optional[int]]:
         """
         Categorize a transaction.
 
@@ -455,6 +514,7 @@ class TransactionCategorizer:
                 - date
                 - account
                 etc.
+            disable_ai: If True, skip AI categorization fallback (default: False)
 
         Returns:
             Tuple of (tier1, tier2, tier3, owner, is_internal_transfer, categorization_source, ai_confidence)
@@ -486,8 +546,8 @@ class TransactionCategorizer:
                 owner_from_rule = self._determine_owner(transaction)
             return (tier1, tier2, tier3, owner_from_rule, False, 'manual_rule', None)
 
-        # 3. Try AI fallback
-        if self.ai_enabled:
+        # 3. Try AI fallback (unless disabled)
+        if self.ai_enabled and not disable_ai:
             result = self._apply_ai_categorization(transaction)
             if result:
                 tier1, tier2, tier3, confidence = result
@@ -531,7 +591,6 @@ class TransactionCategorizer:
         Methods:
         1. Counterparty account in own accounts
         2. Description keywords
-        3. Same-day opposite amount (optional)
         """
         # Check exclusions first - if any exclusion matches, NOT an internal transfer
         exclusions = self.config.get('internal_transfers', {}).get('exclusions', {})
@@ -581,22 +640,7 @@ class TransactionCategorizer:
                             logger.info(f"✓ Internal transfer detected: counterparty base '{counterparty_base}' matches own account '{own_account}' (flexible match)")
                             return True
 
-                # Also check if it's a self-transfer (account == counterparty_account)
-                # This catches transfers between own accounts (e.g., credit card payment)
-                if account and counterparty:
-                    # Try exact match first
-                    if account == counterparty:
-                        logger.info(f"✓ Internal transfer detected: self-transfer '{account}' == '{counterparty}'")
-                        return True
-
-                    # Try base account numbers (without bank codes)
-                    account_base = account.split('/')[0] if '/' in account else account
-                    counterparty_base = counterparty.split('/')[0] if '/' in counterparty else counterparty
-                    if account_base == counterparty_base:
-                        logger.info(f"✓ Internal transfer detected: self-transfer base '{account_base}' == '{counterparty_base}'")
-                        return True
-
-                logger.debug(f"✗ No match: counterparty='{counterparty}' not in own_accounts and not self-transfer")
+                logger.debug(f"✗ No match: counterparty='{counterparty}' not in own_accounts")
 
             # Method 2: Description keywords
             elif method_type == 'description_keywords':
@@ -608,11 +652,6 @@ class TransactionCategorizer:
                     if keyword.upper() in description or keyword.upper() in counterparty_name:
                         logger.debug(f"Internal transfer detected: keyword '{keyword}' found")
                         return True
-
-            # Method 3: Same-day opposite amount (advanced)
-            elif method_type == 'same_day_opposite_amount':
-                # This requires looking at other transactions - implement later
-                pass
 
         return False
 
@@ -656,6 +695,7 @@ class TransactionCategorizer:
         - counterparty_account_exact: Check if counterparty_account matches exactly
         - counterparty_name_contains: Check if counterparty_name contains string (case-insensitive)
         - variable_symbol_exact: Check if variable_symbol matches exactly
+        - type_contains: Check if type contains string (case-insensitive)
         - amount_czk_min: Minimum amount in CZK
         - amount_czk_max: Maximum amount in CZK
         """
@@ -665,38 +705,55 @@ class TransactionCategorizer:
         counterparty_account = str(transaction.get('counterparty_account', '')).strip()
         counterparty_name = str(transaction.get('counterparty_name', '')).upper()
         variable_symbol = str(transaction.get('variable_symbol', '')).strip()
+        transaction_type = str(transaction.get('type', '')).upper()
         amount_czk = transaction.get('amount_czk', 0)
         if isinstance(amount_czk, Decimal):
             amount_czk = float(amount_czk)
 
+        # Check if at least one matching criterion is specified
+        # This prevents rules with all empty criteria from matching everything
+        has_criteria = False
+
         # Check description contains
         desc_check = rule.get('description_contains', '').strip()
         if desc_check:
+            has_criteria = True
             if desc_check.upper() not in description:
                 return False
 
         # Check institution exact
         inst_check = rule.get('institution_exact', '').strip()
         if inst_check:
+            has_criteria = True
             if inst_check.upper() != institution:
                 return False
 
         # Check counterparty account exact
         cp_account_check = rule.get('counterparty_account_exact', '').strip()
         if cp_account_check:
+            has_criteria = True
             if cp_account_check != counterparty_account:
                 return False
 
         # Check counterparty name contains
         cp_name_check = rule.get('counterparty_name_contains', '').strip()
         if cp_name_check:
+            has_criteria = True
             if cp_name_check.upper() not in counterparty_name:
                 return False
 
         # Check variable symbol exact
         vs_check = rule.get('variable_symbol_exact', '').strip()
         if vs_check:
+            has_criteria = True
             if vs_check != variable_symbol:
+                return False
+
+        # Check type contains
+        type_check = rule.get('type_contains', '').strip()
+        if type_check:
+            has_criteria = True
+            if type_check.upper() not in transaction_type:
                 return False
 
         # Check amount range
@@ -704,14 +761,21 @@ class TransactionCategorizer:
         amount_max = rule.get('amount_czk_max')
 
         if amount_min is not None:
+            has_criteria = True
             if amount_czk < amount_min:
                 return False
 
         if amount_max is not None:
+            has_criteria = True
             if amount_czk > amount_max:
                 return False
 
-        # All conditions matched
+        # If no criteria were specified, this rule is invalid and should not match
+        if not has_criteria:
+            logger.debug(f"Rule skipped: no matching criteria specified (tier1={rule.get('tier1')})")
+            return False
+
+        # All specified conditions matched
         return True
 
     def _rule_matches(self, rule: Dict, transaction: Dict[str, Any]) -> bool:
@@ -824,10 +888,6 @@ class TransactionCategorizer:
 
             logger.info(f"AI categorized: {tier1} > {tier2} > {tier3} ({confidence}% confidence)")
 
-            # Cache result if enabled
-            if self.ai_config.get('cache_results', False):
-                self._cache_ai_result(transaction, (tier1, tier2, tier3))
-
             return (tier1, tier2, tier3, confidence)
 
         except Exception as e:
@@ -854,9 +914,6 @@ class TransactionCategorizer:
         # Get category tree summary
         category_summary = self._get_category_tree_summary()
 
-        # Get historical examples
-        historical_examples = self._get_historical_examples(transaction)
-
         # Build prompt from template
         template = self.ai_config.get('prompt_template', '')
 
@@ -867,8 +924,8 @@ class TransactionCategorizer:
             description=transaction.get('description', ''),
             counterparty_name=transaction.get('counterparty_name', ''),
             counterparty_account=transaction.get('counterparty_account', ''),
-            category_tree_summary=category_summary,
-            historical_examples=historical_examples
+            transaction_type=transaction.get('type', 'N/A'),
+            category_tree_summary=category_summary
         )
 
         return prompt
@@ -883,68 +940,9 @@ class TransactionCategorizer:
             for tier2_cat in tier1_cat.get('tier2_categories', []):
                 tier2 = tier2_cat.get('tier2')
                 tier3_list = tier2_cat.get('tier3', [])
-                tier3_sample = ', '.join(tier3_list[:3])  # Show first 3
-                if len(tier3_list) > 3:
-                    tier3_sample += '...'
+                # Show ALL tier3 categories (not just first 3)
+                tier3_sample = ', '.join(tier3_list)
                 lines.append(f"  - {tier2}: {tier3_sample}")
-
-        return '\n'.join(lines)
-
-    def _get_historical_examples(self, transaction: Dict[str, Any]) -> str:
-        """
-        Get relevant historical examples for this transaction.
-
-        Finds similar transactions from historical data based on description matching.
-        """
-        if not self.historical_data:
-            return "No historical examples available."
-
-        hist_config = self.ai_config.get('historical_data', {})
-        max_examples = hist_config.get('max_examples', 20)
-
-        # Get transaction description for matching
-        txn_description = str(transaction.get('description', '')).lower()
-
-        if not txn_description:
-            # If no description, just return recent examples
-            examples = self.historical_data[:max_examples]
-        else:
-            # Find similar examples by keyword matching
-            scored_examples = []
-
-            for hist_txn in self.historical_data:
-                hist_desc = str(hist_txn.get('description', '')).lower()
-
-                # Simple scoring: count matching words
-                txn_words = set(txn_description.split())
-                hist_words = set(hist_desc.split())
-
-                if len(txn_words) > 0:
-                    # Calculate similarity score
-                    common_words = txn_words & hist_words
-                    score = len(common_words) / len(txn_words)
-
-                    if score > 0:  # Only include if there's some match
-                        scored_examples.append((score, hist_txn))
-
-            # Sort by score (highest first) and take top examples
-            scored_examples.sort(key=lambda x: x[0], reverse=True)
-            examples = [ex[1] for ex in scored_examples[:max_examples]]
-
-            # If we found no matches, just use first N examples
-            if not examples:
-                examples = self.historical_data[:max_examples]
-
-        # Format examples for prompt
-        lines = []
-        for i, example in enumerate(examples[:max_examples], 1):
-            lines.append(f"{i}. Description: {example['description'][:80]}")
-            lines.append(f"   Category: {example['category']}")
-            lines.append(f"   Amount: {example['amount']}")
-            lines.append("")
-
-        if not lines:
-            return "No historical examples available."
 
         return '\n'.join(lines)
 
@@ -1100,43 +1098,93 @@ class TransactionCategorizer:
         if not all([tier1, tier2, tier3]):
             raise ValueError(f"Could not parse AI response: {response}")
 
+        # Validate that the category combination exists in the category tree
+        if not self._validate_category_path(tier1, tier2, tier3):
+            # Get valid suggestions for better error message
+            valid_suggestions = self._get_valid_category_suggestions(tier1, tier2, tier3)
+            logger.warning(f"AI returned invalid category combination: {tier1} > {tier2} > {tier3}")
+            if valid_suggestions:
+                logger.info(f"Valid category suggestions: {valid_suggestions}")
+            raise ValueError(f"Invalid category combination: {tier1} > {tier2} > {tier3}")
+
         return tier1, tier2, tier3, confidence
 
-    def _cache_ai_result(self, transaction: Dict[str, Any], category: Tuple[str, str, str]):
-        """Cache AI categorization result."""
-        cache_file = Path(self.ai_config.get('cache_file', 'data/cache/ai_category_cache.json'))
-        cache_file.parent.mkdir(parents=True, exist_ok=True)
+    def _validate_category_path(self, tier1: str, tier2: str, tier3: str) -> bool:
+        """
+        Validate that a tier1/tier2/tier3 combination exists in the category tree.
 
-        # Load existing cache
-        if cache_file.exists():
-            with open(cache_file, 'r', encoding='utf-8') as f:
-                cache = json.load(f)
-        else:
-            cache = []
+        Returns:
+            True if valid, False otherwise
+        """
+        if not self.category_tree:
+            return False
 
-        # Create cache entry
-        entry = {
-            'description': transaction.get('description'),
-            'counterparty_name': transaction.get('counterparty_name'),
-            'amount': float(transaction.get('amount', 0)) if transaction.get('amount') else None,
-            'category': {
-                'tier1': category[0],
-                'tier2': category[1],
-                'tier3': category[2]
-            },
-            'timestamp': datetime.now().isoformat()
-        }
+        # Find tier1
+        tier1_cat = None
+        for cat in self.category_tree:
+            if cat.get('tier1') == tier1:
+                tier1_cat = cat
+                break
 
-        cache.append(entry)
+        if not tier1_cat:
+            return False
 
-        # Save cache
-        with open(cache_file, 'w', encoding='utf-8') as f:
-            json.dump(cache, f, indent=2, ensure_ascii=False)
+        # Find tier2
+        tier2_cat = None
+        for cat in tier1_cat.get('tier2_categories', []):
+            if cat.get('tier2') == tier2:
+                tier2_cat = cat
+                break
+
+        if not tier2_cat:
+            return False
+
+        # Find tier3
+        tier3_list = tier2_cat.get('tier3', [])
+        if tier3 not in tier3_list:
+            return False
+
+        return True
+
+    def _get_valid_category_suggestions(self, tier1: str, tier2: str, tier3: str) -> str:
+        """
+        Get valid category suggestions when AI returns invalid combination.
+
+        Returns:
+            String with helpful suggestions
+        """
+        if not self.category_tree:
+            return ""
+
+        suggestions = []
+
+        # Check if tier2 or tier3 values appear elsewhere in tree (common mistake)
+        for t1_cat in self.category_tree:
+            t1_name = t1_cat.get('tier1')
+
+            for t2_cat in t1_cat.get('tier2_categories', []):
+                t2_name = t2_cat.get('tier2')
+                t3_list = t2_cat.get('tier3', [])
+
+                # If tier2/tier3 match, suggest correct tier1
+                if t2_name == tier2 and tier3 in t3_list:
+                    suggestions.append(f"{t1_name} > {t2_name} > {tier3}")
+
+                # If just tier3 matches, suggest alternatives
+                elif tier3 in t3_list:
+                    suggestions.append(f"{t1_name} > {t2_name} > {tier3}")
+
+        if suggestions:
+            return "Perhaps you meant: " + " OR ".join(suggestions[:3])
+
+        return "No similar valid combinations found"
+
 
 
 def get_categorizer(config_path: str = "config/categorization.yaml",
                    settings_path: str = "config/settings.yaml",
-                   reload_rules: bool = False) -> TransactionCategorizer:
+                   reload_rules: bool = False,
+                   ai_enabled: Optional[bool] = None) -> TransactionCategorizer:
     """
     Convenience function to get categorizer instance.
 
@@ -1144,8 +1192,16 @@ def get_categorizer(config_path: str = "config/categorization.yaml",
         config_path: Path to categorization config file
         settings_path: Path to settings file
         reload_rules: Force reload rules from Google Sheets (bypass cache)
+        ai_enabled: Override AI fallback setting (None = use config, True/False = override)
 
     Returns:
         TransactionCategorizer instance
     """
-    return TransactionCategorizer(config_path, settings_path, reload_rules)
+    categorizer = TransactionCategorizer(config_path, settings_path, reload_rules)
+
+    # Override AI setting if specified
+    if ai_enabled is not None:
+        categorizer.ai_enabled = ai_enabled
+        logger.info(f"AI fallback overridden via parameter: {'enabled' if ai_enabled else 'disabled'}")
+
+    return categorizer

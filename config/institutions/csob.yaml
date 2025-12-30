@@ -71,19 +71,6 @@ owner_detection:
     "243160770/0300": "Mirka"
   default_owner: "Unknown"
 
-category_mapping:
-  "Restaurace": "Dining"
-  "Potraviny": "Groceries"
-  "Doprava": "Transport"
-  "Volný čas a zábava": "Entertainment"
-  "Nákupy a služby": "Shopping"
-  "TV, internet, telefon": "Utilities"
-  "Splátky": "Payments"
-  "Příjem": "Income"
-  "Bankovní transakce": "Transfer"
-  "Odchozí nezatříděná": "Uncategorized"
-  "Příchozí nezatříděná": "Uncategorized"
-
 notes: |
   ČSOB exports:
   - BOM (Byte Order Mark) - handled by utf-8-sig encoding

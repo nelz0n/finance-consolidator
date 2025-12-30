@@ -1,9 +1,23 @@
-google-api-python-client==2.108.0
-google-auth-httplib2==0.2.0
-google-auth-oauthlib==1.2.0
-pandas==2.1.4
-openpyxl==3.1.2
-pyyaml==6.0.1
-python-dotenv==1.0.0
-python-dateutil==2.8.2
-requests==2.31.0
+# Existing dependencies
+google-api-python-client>=2.108.0
+google-auth-httplib2>=0.2.0
+google-auth-oauthlib>=1.2.0
+pandas>=2.2.0  # Updated for Python 3.13 compatibility
+openpyxl>=3.1.2
+pyyaml>=6.0.1
+python-dotenv>=1.0.0
+python-dateutil>=2.8.2
+requests>=2.31.0
+
+# FastAPI Backend
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Database
+sqlalchemy>=2.0.25
+alembic>=1.13.1
+
+# Utilities
+python-multipart>=0.0.6

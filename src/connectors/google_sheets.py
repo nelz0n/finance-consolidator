@@ -317,6 +317,43 @@ class GoogleSheetsConnector:
             logger.error(f"Error getting sheet names: {str(e)}")
             return None
 
+    def get_sheet_id(self, spreadsheet_id: str, sheet_name: str) -> Optional[int]:
+        """
+        Get the sheet ID for a given sheet name.
+
+        Args:
+            spreadsheet_id: The ID of the spreadsheet
+            sheet_name: Name of the sheet
+
+        Returns:
+            Sheet ID (numeric), or None if not found
+        """
+        if not self.service:
+            logger.error("Not authenticated. Call authenticate() first.")
+            return None
+
+        try:
+            spreadsheet = self.service.spreadsheets().get(
+                spreadsheetId=spreadsheet_id
+            ).execute()
+
+            sheets = spreadsheet.get('sheets', [])
+            for sheet in sheets:
+                if sheet['properties']['title'] == sheet_name:
+                    sheet_id = sheet['properties']['sheetId']
+                    logger.debug(f"Found sheet '{sheet_name}' with ID {sheet_id}")
+                    return sheet_id
+
+            logger.warning(f"Sheet '{sheet_name}' not found")
+            return None
+
+        except HttpError as e:
+            logger.error(f"HTTP error getting sheet ID: {str(e)}")
+            return None
+        except Exception as e:
+            logger.error(f"Error getting sheet ID: {str(e)}")
+            return None
+
     def batch_update(
         self,
         spreadsheet_id: str,

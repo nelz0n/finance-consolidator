@@ -36,12 +36,13 @@ class FileParser:
 
         logger.debug(f"Initialized parser for {self.institution_name} (format: {self.file_type})")
 
-    def parse_file(self, file_path: str) -> List[Dict[str, Any]]:
+    def parse_file(self, file_path: str, original_filename: str = None) -> List[Dict[str, Any]]:
         """
         Parse file based on institution configuration.
 
         Args:
             file_path: Path to file to parse
+            original_filename: Optional original filename (for account extraction when file was renamed)
 
         Returns:
             List of raw transaction dictionaries
@@ -49,6 +50,9 @@ class FileParser:
         logger.info(f"Parsing file: {file_path}")
 
         file_path_obj = Path(file_path)
+
+        # Use original filename for account extraction if provided, otherwise use actual file path
+        filename_for_extraction = original_filename if original_filename else file_path
 
         try:
             # Use format.type from config (fallback to file extension)
@@ -59,9 +63,9 @@ class FileParser:
 
             # Route to appropriate parser
             if file_type == 'csv':
-                transactions = self._parse_csv(file_path)
+                transactions = self._parse_csv(file_path, filename_for_extraction)
             elif file_type == 'xlsx':
-                transactions = self._parse_xlsx(file_path)
+                transactions = self._parse_xlsx(file_path, filename_for_extraction)
             else:
                 logger.error(f"Unsupported file type: {file_type}")
                 return []
@@ -73,17 +77,22 @@ class FileParser:
             logger.error(f"Error parsing file {file_path}: {str(e)}")
             return []
 
-    def _parse_csv(self, file_path: str) -> List[Dict[str, Any]]:
+    def _parse_csv(self, file_path: str, filename_for_extraction: str = None) -> List[Dict[str, Any]]:
         """
         Parse CSV file using configuration.
 
         Args:
             file_path: Path to CSV file
+            filename_for_extraction: Optional filename for account extraction (if file was renamed)
 
         Returns:
             List of transaction dictionaries
         """
         logger.debug(f"Parsing CSV: {file_path}")
+
+        # Use filename for extraction (defaults to file_path if not provided)
+        if not filename_for_extraction:
+            filename_for_extraction = file_path
 
         transactions = []
 
@@ -130,7 +139,7 @@ class FileParser:
                         row = self._apply_transformations(row)
 
                     # Map columns to standard fields
-                    transaction = self._map_columns(row, column_mapping, file_path)
+                    transaction = self._map_columns(row, column_mapping, filename_for_extraction)
 
                     if transaction:
                         transactions.append(transaction)
@@ -141,17 +150,22 @@ class FileParser:
 
         return transactions
 
-    def _parse_xlsx(self, file_path: str) -> List[Dict[str, Any]]:
+    def _parse_xlsx(self, file_path: str, filename_for_extraction: str = None) -> List[Dict[str, Any]]:
         """
         Parse XLSX file using configuration.
 
         Args:
             file_path: Path to XLSX file
+            filename_for_extraction: Optional filename for account extraction (if file was renamed)
 
         Returns:
             List of transaction dictionaries
         """
         logger.debug(f"Parsing XLSX: {file_path}")
+
+        # Use filename for extraction (defaults to file_path if not provided)
+        if not filename_for_extraction:
+            filename_for_extraction = file_path
 
         transactions = []
 
@@ -223,7 +237,7 @@ class FileParser:
                         row_dict = self._apply_transformations(row_dict)
 
                     # Map columns to standard fields
-                    transaction = self._map_columns(row_dict, column_mapping, file_path)
+                    transaction = self._map_columns(row_dict, column_mapping, filename_for_extraction)
 
                     if transaction:
                         transactions.append(transaction)

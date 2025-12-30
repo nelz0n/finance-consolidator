@@ -28,7 +28,8 @@ class SheetsWriter:
         self,
         transactions: List[Transaction],
         tab_name: str = "Transactions",
-        mode: str = "append"
+        mode: str = "append",
+        value_input_option: str = "USER_ENTERED"
     ) -> bool:
         """
         Write transactions to Google Sheets.
@@ -86,7 +87,8 @@ class SheetsWriter:
                 success = self.sheets.write_sheet(
                     self.spreadsheet_id,
                     f"{tab_name}!A1",
-                    all_data
+                    all_data,
+                    value_input_option=value_input_option
                 )
 
             elif mode == "append":
@@ -113,7 +115,8 @@ class SheetsWriter:
                 success = self.sheets.append_sheet(
                     self.spreadsheet_id,
                     f"{tab_name}!A1",
-                    rows
+                    rows,
+                    value_input_option=value_input_option
                 )
 
             else:
@@ -121,6 +124,8 @@ class SheetsWriter:
                 return False
 
             if success:
+                # Apply date formatting to date columns
+                self._format_date_columns(tab_name)
                 logger.info(f"✅ Successfully wrote {len(transactions)} transactions")
                 return True
             else:
@@ -129,6 +134,74 @@ class SheetsWriter:
 
         except Exception as e:
             logger.error(f"Error writing transactions: {str(e)}")
+            return False
+
+    def _format_date_columns(self, tab_name: str) -> bool:
+        """
+        Apply proper date/datetime formatting to date columns.
+
+        This ensures consistent formatting across all rows, regardless of whether
+        they were written as numbers or text.
+        """
+        try:
+            logger.info(f"Applying date formatting to {tab_name}")
+
+            # Get sheet ID for the tab
+            sheet_id = self.sheets.get_sheet_id(self.spreadsheet_id, tab_name)
+            if sheet_id is None:
+                logger.warning(f"Could not get sheet ID for {tab_name}")
+                return False
+
+            # Format date column (column B = index 1)
+            # Format: yyyy-mm-dd
+            # Apply to all rows (0-10000 to cover all data, header row will also get formatted)
+            date_format = {
+                'numberFormat': {
+                    'type': 'DATE',
+                    'pattern': 'yyyy-mm-dd'
+                }
+            }
+
+            logger.info("Formatting date column (B) with yyyy-mm-dd format")
+            success_date = self.sheets.format_cells(
+                self.spreadsheet_id,
+                sheet_id,
+                start_row=0,
+                end_row=10000,
+                start_col=1,  # Column B (0-indexed)
+                end_col=2,    # Exclusive, so just column B
+                format_options=date_format
+            )
+
+            # Format processed_date column (column V = index 21)
+            # Format: yyyy-mm-dd hh:mm:ss
+            datetime_format = {
+                'numberFormat': {
+                    'type': 'DATE_TIME',
+                    'pattern': 'yyyy-mm-dd hh:mm:ss'
+                }
+            }
+
+            logger.info("Formatting processed_date column (V) with yyyy-mm-dd hh:mm:ss format")
+            success_datetime = self.sheets.format_cells(
+                self.spreadsheet_id,
+                sheet_id,
+                start_row=0,
+                end_row=10000,
+                start_col=21,  # Column V (0-indexed)
+                end_col=22,    # Exclusive, so just column V
+                format_options=datetime_format
+            )
+
+            if success_date and success_datetime:
+                logger.info("✅ Successfully applied date formatting")
+                return True
+            else:
+                logger.warning("⚠️ Date formatting partially failed")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error formatting date columns: {str(e)}")
             return False
 
     def write_batch(

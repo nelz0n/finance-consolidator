@@ -1,5 +1,5 @@
-# Partners Bank (Raiffeisenbank) Configuration
-# Handles CSV exports from Partners Bank (vypis_*.csv)
+# Partners Bank Configuration
+# Handles XLSX/CSV exports from Partners Bank
 
 institution:
   name: "Partners Bank"
@@ -9,10 +9,10 @@ institution:
 file_detection:
   filename_patterns:
     - "vypis_*.csv"
+    - "vypis_*.xlsx"
 
-format:
-  type: "csv"
-  encoding: "utf-8-sig"  # UTF-8 with BOM
+csv_format:
+  encoding: "utf-8-sig"
   delimiter: ";"
   has_header: true
   skip_rows: 0
@@ -20,7 +20,7 @@ format:
 transformations:
   # Date format
   date:
-    format: "%d. %m. %Y"  # "27. 10. 2025"
+    format: "%d. %m. %Y"  # 27. 10. 2025
 
   # Amount format
   amount:
@@ -28,71 +28,53 @@ transformations:
     thousands_separator: " "
     reverse_sign: false
 
-  # Description: Combine counterparty name + message + note
+  # Combine description fields
   combined_description: "'Název protistrany' + ' [Msg: ' + 'Zpráva pro příjemce' + '] [Note: ' + 'Poznámka pro mě' + ']'"
 
-  # Counterparty account: Combine account number + bank code
+  # Combine counterparty account + bank code
   combined_counterparty_account: "'Číslo účtu protistrany' + '/' + 'Kód banky protistrany'"
 
-columns:
+column_mapping:
   # Core fields
-  date: "Datum zúčtování"  # Settlement date
+  date: "Datum zúčtování"
   description: "combined_description"
   amount: "Částka"
   currency: "Měna"
 
-  # Counterparty information
+  # Counterparty
   counterparty_account: "combined_counterparty_account"
   counterparty_name: "Název protistrany"
 
-  # Czech banking symbols
+  # Optional fields
   variable_symbol: "Variabilní symbol"
   constant_symbol: "Konstantní symbol"
   specific_symbol: "Specifický symbol"
-
-  # Optional fields
   transaction_type: "Typ úhrady"
   transaction_id: "Identifikace transakce"
 
-  # Internal fields for processing
-  _direction: "Směr úhrady"  # Příchozí/Odchozí
+  # Internal processing field
+  _direction: "Směr úhrady"
 
-  # Defaults: Extract account from filename and append bank code
+  # Defaults - applied after column mapping
   defaults:
-    account: "extract_from_filename"
-    account_bank_code: "6363"  # Partners Bank code (will be appended as /6363)
-
-filtering:
-  exclude_descriptions: []
+    account: "extract_from_filename"  # Extracts account from: vypis_1330299329_*.csv
+    account_bank_code: "6363"  # Appends /6363 to extracted account
 
 owner_detection:
   method: "account_mapping"
   account_mapping:
-    "3581422554": "Unknown"
-    "3581422554/6363": "Unknown"
-    "1330299329": "Branislav"
-    "1330299329/6363": "Branislav"
-    "2106210400": "Branislav"
-    "2106210400/6363": "Branislav"
+    "3581422554/6363": "Brano"
+    "1330299329/6363": "Brano"
+    "2106210400/6363": "Brano"
   default_owner: "Unknown"
-
-category_mapping:
-  "Příchozí platba": "Income"
-  "Odchozí platba": "Payment"
-  "Platba kartou": "Card Payment"
-  "Trvalý příkaz": "Standing Order"
-  "Vrácení platby kartou": "Refund"
-  "Vklad v hotovosti": "Cash Deposit"
-  "Výběr v hotovosti": "Cash Withdrawal"
-  "Úroky": "Income"
-  "Daň z úroku": "Tax"
 
 notes: |
   Partners Bank exports:
-  - Standard CSV format with UTF-8 BOM encoding
+  - Standard CSV/XLSX format with UTF-8 BOM encoding
   - Semicolon delimiter
   - Date format: "27. 10. 2025" (day. month. year with spaces)
   - Amount format: "14 000,00" (space thousands, comma decimal)
   - Direction field: "Příchozí" (incoming) / "Odchozí" (outgoing)
   - Account number extracted from filename: vypis_<account>_<from>_<to>.csv
+  - Bank code /6363 auto-appended to account
   - Rich metadata: symbols, IBAN, transaction IDs

@@ -1,6 +1,7 @@
 """Data normalizer to convert raw parsed data to Transaction objects."""
 
 import re
+import hashlib
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Dict, Any, Optional, List
@@ -28,9 +29,6 @@ class DataNormalizer:
         self.converter = currency_converter
         self.config = institution_config
         self.institution_name = institution_config.get('institution', {}).get('name', 'Unknown')
-
-        # Transaction ID sequence counter
-        self.transaction_sequence = defaultdict(int)
 
         logger.debug(f"Initialized normalizer for {self.institution_name}")
 
@@ -146,8 +144,15 @@ class DataNormalizer:
         # Map category
         category = self._apply_category_mapping(raw_data)
 
-        # Generate transaction ID
-        transaction_id = self._generate_transaction_id(date)
+        # Generate transaction ID (hash-based for duplicate detection across files)
+        transaction_id = self._generate_transaction_id(
+            date=date,
+            amount=amount,
+            currency=currency,
+            account=account,
+            description=description,
+            raw_data=raw_data
+        )
 
         # Get transaction type
         transaction_type = self._get_transaction_type(raw_data, amount)
@@ -389,19 +394,76 @@ class DataNormalizer:
         # Return as-is or default
         return source_category if source_category else 'Uncategorized'
 
-    def _generate_transaction_id(self, date: datetime) -> str:
+    def _generate_transaction_id(
+        self,
+        date: datetime,
+        amount: Decimal,
+        currency: str,
+        account: str,
+        description: str,
+        raw_data: Dict[str, Any]
+    ) -> str:
         """
-        Generate unique transaction ID.
+        Generate unique transaction ID based on transaction data hash.
 
-        Format: TXN_YYYYMMDD_XXX
+        This ensures the same transaction gets the same ID even if it appears
+        in multiple files (e.g., overlapping export periods).
+
+        Format: TXN_YYYYMMDD_<hash8>
+        Example: TXN_20251031_a3f5b8c9
+
+        Args:
+            date: Transaction date
+            amount: Transaction amount
+            currency: Currency code
+            account: Account number
+            description: Transaction description
+            raw_data: Raw transaction data (for additional fields)
+
+        Returns:
+            Transaction ID string
         """
         date_str = date.strftime('%Y%m%d')
 
-        # Increment sequence for this date
-        self.transaction_sequence[date_str] += 1
-        sequence = self.transaction_sequence[date_str]
+        # Build hash input from all available fields
+        # This creates a deterministic fingerprint of the transaction
+        hash_parts = [
+            date_str,
+            str(amount),
+            currency,
+            account,
+            description,
+        ]
 
-        return f"TXN_{date_str}_{sequence:03d}"
+        # Add optional fields if available (for better uniqueness)
+        optional_fields = [
+            'counterparty_account',
+            'counterparty_name',
+            'variable_symbol',
+            'constant_symbol',
+            'specific_symbol',
+            'reference',
+            'note',
+        ]
+
+        for field in optional_fields:
+            value = self._clean_string_field(raw_data.get(field, ''))
+            if value:  # Only include if not empty
+                hash_parts.append(value)
+
+        # Create hash input string (join with | to ensure field separation)
+        hash_input = '|'.join(hash_parts)
+
+        # Generate SHA256 hash and take first 8 characters
+        hash_obj = hashlib.sha256(hash_input.encode('utf-8'))
+        hash_hex = hash_obj.hexdigest()[:8]
+
+        # Format: TXN_YYYYMMDD_<hash8>
+        transaction_id = f"TXN_{date_str}_{hash_hex}"
+
+        logger.debug(f"Generated transaction ID: {transaction_id}")
+
+        return transaction_id
 
     def _get_transaction_type(self, raw_data: Dict[str, Any], amount: Decimal) -> str:
         """

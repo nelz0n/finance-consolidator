@@ -56,8 +56,8 @@ currency:
 
 # Categorization Configuration
 categorization:
-  # Rules source: "google_sheets" or "yaml"
-  rules_source: "google_sheets"
+  # Rules source: "database", "google_sheets", or "yaml"
+  rules_source: "database"
 
   # Google Sheets configuration
   google_sheets:
@@ -70,7 +70,7 @@ categorization:
     categories_tab: "Categories"
 
   # Caching configuration
-  cache_enabled: true
+  cache_enabled: false  # Disabled - always fetch fresh rules from Google Sheets
   cache_file: "data/cache/sheets_rules.yaml"
   cache_ttl_hours: 24  # Re-fetch from Sheets after 24 hours
 

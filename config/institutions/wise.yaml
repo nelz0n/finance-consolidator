@@ -51,37 +51,16 @@ column_mapping:
   _direction: "Direction"
   _status: "Status"
 
-filtering:
-  # Only process COMPLETED transactions
-  status_include:
-    - "COMPLETED"
-
-  # Skip cancelled and refunded
-  status_exclude:
-    - "CANCELLED"
-    - "REFUNDED"
-
 owner_detection:
   method: "fixed"
   default_owner: "Branislav"
-
-category_mapping:
-  "Transport": "Transport"
-  "Bills": "Bills"
-  "Eating out": "Dining"
-  "Groceries": "Groceries"
-  "Shopping": "Shopping"
-  "General": "Other"
-  "Money added": "Income"
-  "Charity": "Charity"
-  "Entertainment": "Entertainment"
 
 notes: |
   Wise exports:
   - CSV format with comma delimiter
   - DateTime format: YYYY-MM-DD HH:MM:SS
   - Direction field: IN/OUT (handled by normalizer for amount sign)
-  - Status field: COMPLETED, CANCELLED, REFUNDED
+  - Status field: COMPLETED, CANCELLED, REFUNDED (filtered in normalizer, not parser)
   - Rich categorization
   - Exchange rate information included
   - Amounts are after fees

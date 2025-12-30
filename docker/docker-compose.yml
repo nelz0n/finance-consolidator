@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  finance-consolidator:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+
+    container_name: finance-consolidator
+    restart: unless-stopped
+
+    ports:
+      - "8080:8080"
+
+    volumes:
+      # Persistent data
+      - ../data:/app/data
+
+      # Configuration (read-only for safety)
+      - ../config:/app/config:ro
+
+    environment:
+      # Database
+      - DATABASE_URL=sqlite:////app/data/finance.db
+
+      # Google API credentials
+      - GOOGLE_CREDENTIALS_PATH=/app/data/credentials/google_credentials.json
+      - GOOGLE_TOKEN_PATH=/app/data/credentials/token.pickle
+
+      # API Keys (from .env file)
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+
+      # App settings
+      - LOG_LEVEL=INFO
+      - ENABLE_AUTO_SYNC=false
+      - BASE_CURRENCY=CZK
+
+    env_file:
+      - ../.env
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s

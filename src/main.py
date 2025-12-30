@@ -27,7 +27,37 @@ from src.core.file_scanner import FileScanner
 from src.core.parser import FileParser
 from src.core.normalizer import DataNormalizer
 from src.core.writer import SheetsWriter
+from src.core.database_writer import DatabaseWriter
 from src.models.transaction import Transaction
+
+
+def ensure_database_institutions():
+    """Ensure institutions exist in database"""
+    try:
+        from backend.database.connection import get_db_context
+        from backend.database.models import Institution
+
+        with get_db_context() as db:
+            # Check if institutions exist
+            existing = db.query(Institution).count()
+            if existing > 0:
+                return  # Already initialized
+
+            # Create institutions
+            institutions = [
+                {"code": "csob", "name": "ČSOB", "type": "bank", "country": "CZ"},
+                {"code": "partners", "name": "Partners Bank", "type": "bank", "country": "CZ"},
+                {"code": "wise", "name": "Wise", "type": "bank", "country": "GB"},
+            ]
+
+            for inst_data in institutions:
+                inst = Institution(**inst_data)
+                db.add(inst)
+
+            db.commit()
+    except Exception:
+        # Silently fail - database might not be available
+        pass
 
 
 def load_config(config_path: str = "config/settings.yaml") -> Dict[str, Any]:
@@ -69,7 +99,7 @@ Examples:
   python -m src.main --dry-run
 
   # Process specific institution
-  python -m src.main --institution "ČSOB"
+  python -m src.main --institution "Wise"
 
   # Process date range
   python -m src.main --from-date 2024-10-01 --to-date 2024-10-31
@@ -79,6 +109,12 @@ Examples:
 
   # Force reprocess (overwrite existing data)
   python -m src.main --force
+
+  # First import without AI categorization
+  python -m src.main --force --disable-ai
+
+  # Re-import with AI enabled (overrides config)
+  python -m src.main --force --enable-ai --reload-rules
         """
     )
 
@@ -91,7 +127,7 @@ Examples:
     parser.add_argument(
         '--institution',
         type=str,
-        help='Process only files from specific institution (e.g., "ČSOB", "Wise", "Partners Bank")'
+        help='Process only files from specific institution (e.g., "Wise", "Partners Bank")'
     )
 
     parser.add_argument(
@@ -135,6 +171,19 @@ Examples:
         '--reload-rules',
         action='store_true',
         help='Force reload categorization rules from Google Sheets (bypass cache)'
+    )
+
+    # AI fallback control (mutually exclusive)
+    ai_group = parser.add_mutually_exclusive_group()
+    ai_group.add_argument(
+        '--enable-ai',
+        action='store_true',
+        help='Enable AI fallback for categorization (overrides config)'
+    )
+    ai_group.add_argument(
+        '--disable-ai',
+        action='store_true',
+        help='Disable AI fallback for categorization (overrides config)'
     )
 
     return parser.parse_args()
@@ -239,10 +288,21 @@ def main():
 
         # Initialize categorizer
         logger.info("Initializing categorizer...")
+
+        # Determine AI setting (command-line overrides config)
+        ai_enabled = None
+        if args.enable_ai:
+            ai_enabled = True
+            logger.info("🤖 AI fallback enabled via --enable-ai parameter")
+        elif args.disable_ai:
+            ai_enabled = False
+            logger.info("🚫 AI fallback disabled via --disable-ai parameter")
+
         categorizer = get_categorizer(
             "config/categorization.yaml",
             "config/settings.yaml",
-            reload_rules=args.reload_rules
+            reload_rules=args.reload_rules,
+            ai_enabled=ai_enabled
         )
         logger.info("✓ Categorizer ready")
 
@@ -460,6 +520,33 @@ def main():
             logger.info(f"   Tab: {transactions_tab}")
             logger.info(f"   Transactions: {len(all_transactions)}")
             logger.info("=" * 80)
+
+            # Write to SQLite database (dual-write)
+            logger.info("\n" + "=" * 80)
+            logger.info("Writing to SQLite database...")
+            logger.info("=" * 80)
+
+            try:
+                # Ensure institutions exist in database
+                ensure_database_institutions()
+
+                db_writer = DatabaseWriter()
+                db_summary = db_writer.write_transactions(
+                    all_transactions,
+                    mode=write_mode
+                )
+                logger.info("\n" + "=" * 80)
+                logger.info("✅ SUCCESS - Data written to SQLite")
+                logger.info(f"   Database: data/finance.db")
+                logger.info(f"   Added: {db_summary['added']}")
+                logger.info(f"   Updated: {db_summary['updated']}")
+                logger.info(f"   Skipped: {db_summary['skipped']}")
+                logger.info("=" * 80)
+            except Exception as e:
+                logger.warning(f"⚠️  Warning: Failed to write to SQLite database: {e}")
+                logger.warning("   Transactions were saved to Google Sheets successfully")
+                logger.warning("   You can sync to database later if needed")
+
         else:
             logger.error("\n" + "=" * 80)
             logger.error("❌ FAILED - Error writing to Google Sheets")

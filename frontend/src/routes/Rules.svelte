@@ -33,8 +33,7 @@
       amount_czk_max: null,
       tier1: '',
       tier2: '',
-      tier3: '',
-      owner: ''
+      tier3: ''
     };
   }
 
@@ -262,7 +261,6 @@
             <th>Priority</th>
             <th>Conditions</th>
             <th>Category</th>
-            <th>Owner</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -286,7 +284,6 @@
                   <span class="tier3">{rule.tier3}</span>
                 </div>
               </td>
-              <td>{rule.owner || '-'}</td>
               <td>
                 <div class="action-buttons">
                   <button
@@ -310,7 +307,7 @@
 
           {#if filteredRules.length === 0}
             <tr>
-              <td colspan="5" class="no-rules">
+              <td colspan="4" class="no-rules">
                 No rules found. {filterText ? 'Try a different filter.' : 'Add your first rule!'}
               </td>
             </tr>
@@ -481,18 +478,6 @@
                 <option value={tier3Name}>{tier3Name}</option>
               {/each}
             </select>
-          </div>
-        </div>
-
-        <div class="form-row">
-          <div class="form-group">
-            <label for="owner">Owner (optional)</label>
-            <input
-              id="owner"
-              type="text"
-              bind:value={ruleForm.owner}
-              placeholder="e.g., Branislav, Mirka"
-            />
           </div>
         </div>
       </div>

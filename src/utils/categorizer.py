@@ -51,8 +51,8 @@ class TransactionCategorizer:
         self.settings = self._load_settings(settings_path)
         self.reload_rules = reload_rules
 
-        # Internal transfer detection
-        self.own_accounts = set(self.config.get('internal_transfers', {}).get('own_accounts', []))
+        # Internal transfer detection - load own accounts from central accounts.yaml
+        self.own_accounts = self._load_own_accounts_from_yaml()
         self.transfer_keywords = self.config.get('internal_transfers', {}).get(
             'detection_methods', []
         )
@@ -110,20 +110,33 @@ class TransactionCategorizer:
             logger.error(f"Error loading settings: {e}")
             return {}
 
-    def _load_manual_rules(self):
-        """Load manual rules from Database, Google Sheets, or YAML."""
-        # Check if Google Sheets-based categorization is configured
-        cat_config = self.settings.get('categorization', {})
-        rules_source = cat_config.get('rules_source', 'yaml')
+    def _load_own_accounts_from_yaml(self) -> set:
+        """Load own accounts from central accounts.yaml config for internal transfer detection."""
+        try:
+            accounts_path = Path("config/accounts.yaml")
+            if not accounts_path.exists():
+                logger.warning("accounts.yaml not found, internal transfer detection will not work")
+                return set()
 
-        if rules_source == 'database':
+            with open(accounts_path, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
+                accounts = config.get('accounts', {})
+                # Return all account numbers as a set
+                own_accounts = set(accounts.keys())
+                logger.info(f"Loaded {len(own_accounts)} own accounts from accounts.yaml for internal transfer detection: {own_accounts}")
+                return own_accounts
+        except Exception as e:
+            logger.error(f"Failed to load own accounts from accounts.yaml: {e}")
+            return set()
+
+    def _load_manual_rules(self):
+        """Load manual rules from Database (fallback to YAML if database fails)."""
+        try:
             logger.info("Loading categorization rules from SQLite database...")
             self.manual_rules, self.owner_mapping = self._load_rules_from_database()
-        elif rules_source == 'google_sheets':
-            logger.info("Loading categorization rules from Google Sheets...")
-            self.manual_rules, self.owner_mapping = self._load_rules_from_sheets()
-        else:
-            logger.info("Loading categorization rules from YAML...")
+        except Exception as e:
+            logger.warning(f"Failed to load rules from database: {e}")
+            logger.info("Falling back to YAML rules...")
             self.manual_rules = self.config.get('manual_rules', [])
             self.owner_mapping = {}
 
@@ -131,159 +144,6 @@ class TransactionCategorizer:
         if self.manual_rules:
             self.manual_rules.sort(key=lambda r: r.get('priority', 0), reverse=True)
             logger.info(f"Loaded {len(self.manual_rules)} manual rules")
-
-    def _load_rules_from_sheets(self) -> Tuple[List[Dict], Dict[str, str]]:
-        """
-        Load categorization rules from Google Sheets.
-
-        Returns:
-            Tuple of (rules list, owner mapping dict)
-        """
-        cat_config = self.settings.get('categorization', {})
-        cache_enabled = cat_config.get('cache_enabled', True)
-        cache_file = Path(cat_config.get('cache_file', 'data/cache/sheets_rules.yaml'))
-        cache_ttl_hours = cat_config.get('cache_ttl_hours', 24)
-
-        # Check cache first (if not force reload)
-        if cache_enabled and not self.reload_rules:
-            cached_data = self._check_cache(cache_file, cache_ttl_hours)
-            if cached_data:
-                logger.info(f"Using cached rules from {cache_file}")
-                return (
-                    cached_data.get('rules', []),
-                    cached_data.get('owner_mapping', {})
-                )
-
-        # Load from Google Sheets
-        try:
-            from src.connectors.google_sheets import GoogleSheetsConnector
-
-            sheets_config = cat_config.get('google_sheets', {})
-            spreadsheet_id = sheets_config.get('spreadsheet_id',
-                                              self.settings.get('google_sheets', {}).get('master_sheet_id'))
-            rules_tab = sheets_config.get('rules_tab', 'Categorization_Rules')
-            owner_tab = sheets_config.get('owner_mapping_tab', 'Owner_Mapping')
-
-            # Get credentials paths
-            creds_path = self.settings.get('google_drive', {}).get('credentials_path')
-            token_path = self.settings.get('google_drive', {}).get('token_path')
-
-            # Connect to Google Sheets
-            connector = GoogleSheetsConnector(creds_path, token_path)
-            if not connector.authenticate():
-                logger.error("Failed to authenticate with Google Sheets")
-                return ([], {})
-
-            # Load rules
-            rules_data = connector.read_sheet(spreadsheet_id, f"{rules_tab}!A:M")
-            if not rules_data or len(rules_data) < 2:
-                logger.warning(f"No rules found in {rules_tab}")
-                return ([], {})
-
-            # Parse rules (skip header row)
-            headers = rules_data[0]
-            rules = []
-            for row in rules_data[1:]:
-                if len(row) < 13:
-                    # Pad row with empty strings
-                    row = row + [''] * (13 - len(row))
-
-                rule = {
-                    'priority': int(row[0]) if row[0] else 0,
-                    'description_contains': row[1].strip() if row[1] else '',
-                    'institution_exact': row[2].strip() if row[2] else '',
-                    'counterparty_account_exact': row[3].strip() if row[3] else '',
-                    'counterparty_name_contains': row[4].strip() if row[4] else '',
-                    'variable_symbol_exact': row[5].strip() if row[5] else '',
-                    'type_contains': row[6].strip() if row[6] else '',
-                    'amount_czk_min': float(row[7]) if row[7] else None,
-                    'amount_czk_max': float(row[8]) if row[8] else None,
-                    'tier1': row[9].strip() if row[9] else '',
-                    'tier2': row[10].strip() if row[10] else '',
-                    'tier3': row[11].strip() if row[11] else '',
-                    'owner': row[12].strip() if row[12] else '',
-                }
-                rules.append(rule)
-
-            logger.info(f"Loaded {len(rules)} rules from Google Sheets")
-
-            # Load owner mapping
-            owner_data = connector.read_sheet(spreadsheet_id, f"{owner_tab}!A:B")
-            owner_mapping = {}
-            if owner_data and len(owner_data) > 1:
-                for row in owner_data[1:]:  # Skip header
-                    if len(row) >= 2:
-                        account = row[0].strip()
-                        owner = row[1].strip()
-                        if account and owner:
-                            owner_mapping[account] = owner
-
-                logger.info(f"Loaded {len(owner_mapping)} owner mappings from Google Sheets")
-
-            # Cache the results
-            if cache_enabled:
-                self._save_cache(cache_file, rules, owner_mapping)
-
-            return (rules, owner_mapping)
-
-        except Exception as e:
-            logger.error(f"Error loading rules from Google Sheets: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-            return ([], {})
-
-    def _check_cache(self, cache_file: Path, ttl_hours: int) -> Optional[Dict]:
-        """
-        Check if cached rules are still valid.
-
-        Args:
-            cache_file: Path to cache file
-            ttl_hours: Time-to-live in hours
-
-        Returns:
-            Cached data if valid, None otherwise
-        """
-        if not cache_file.exists():
-            return None
-
-        try:
-            # Check file age
-            file_age = datetime.now() - datetime.fromtimestamp(cache_file.stat().st_mtime)
-            if file_age.total_seconds() > ttl_hours * 3600:
-                logger.info(f"Cache expired (age: {file_age.total_seconds() / 3600:.1f}h > {ttl_hours}h)")
-                return None
-
-            # Load cache
-            with open(cache_file, 'r', encoding='utf-8') as f:
-                cached_data = yaml.safe_load(f)
-
-            logger.info(f"Cache valid (age: {file_age.total_seconds() / 3600:.1f}h)")
-            return cached_data
-
-        except Exception as e:
-            logger.warning(f"Error reading cache: {e}")
-            return None
-
-    def _save_cache(self, cache_file: Path, rules: List[Dict], owner_mapping: Dict[str, str]):
-        """Save rules to cache file."""
-        try:
-            # Ensure directory exists
-            cache_file.parent.mkdir(parents=True, exist_ok=True)
-
-            # Save to file
-            cache_data = {
-                'rules': rules,
-                'owner_mapping': owner_mapping,
-                'cached_at': datetime.now().isoformat()
-            }
-
-            with open(cache_file, 'w', encoding='utf-8') as f:
-                yaml.dump(cache_data, f, default_flow_style=False, allow_unicode=True)
-
-            logger.info(f"Saved {len(rules)} rules to cache: {cache_file}")
-
-        except Exception as e:
-            logger.warning(f"Error saving cache: {e}")
 
     def _load_rules_from_database(self) -> Tuple[List[Dict], Dict[str, str]]:
         """
@@ -313,9 +173,9 @@ class TransactionCategorizer:
                         'name': rule.name,
                         'priority': rule.priority or 0,
                         'description': rule.description,
-                        'category_tier1': rule.category_tier1,
-                        'category_tier2': rule.category_tier2,
-                        'category_tier3': rule.category_tier3,
+                        'tier1': rule.category_tier1,  # Map category_tier1 -> tier1
+                        'tier2': rule.category_tier2,  # Map category_tier2 -> tier2
+                        'tier3': rule.category_tier3,  # Map category_tier3 -> tier3
                         'owner': None,  # Owner handled via owner_id FK
                         'is_internal_transfer': rule.mark_as_internal,
                         **conditions  # Merge conditions into rule dict
@@ -342,108 +202,16 @@ class TransactionCategorizer:
             return [], {}
 
     def _load_category_tree(self):
-        """Load category tree from Database, Google Sheets, or YAML."""
-        cat_config = self.settings.get('categorization', {})
-        rules_source = cat_config.get('rules_source', 'yaml')
-
-        if rules_source == 'database':
+        """Load category tree from Database (fallback to YAML if database fails)."""
+        try:
             logger.info("Loading category tree from SQLite database...")
             self.category_tree = self._load_category_tree_from_database()
-        elif rules_source == 'google_sheets':
-            logger.info("Loading category tree from Google Sheets...")
-            self.category_tree = self._load_category_tree_from_sheets()
-        else:
-            logger.info("Loading category tree from YAML...")
-            self.category_tree = self.config.get('category_tree', [])
+        except Exception as e:
+            logger.error(f"Failed to load category tree from database: {e}")
+            self.category_tree = []
 
         if self.category_tree:
             logger.info(f"Loaded category tree with {len(self.category_tree)} tier1 categories")
-
-    def _load_category_tree_from_sheets(self) -> List[Dict]:
-        """
-        Load category tree from Google Sheets Categories tab.
-
-        Returns:
-            List of tier1 categories with nested tier2 and tier3
-        """
-        try:
-            from src.connectors.google_sheets import GoogleSheetsConnector
-
-            cat_config = self.settings.get('categorization', {})
-            sheets_config = cat_config.get('google_sheets', {})
-            spreadsheet_id = sheets_config.get('spreadsheet_id',
-                                              self.settings.get('google_sheets', {}).get('master_sheet_id'))
-            categories_tab = sheets_config.get('categories_tab', 'Categories')
-
-            # Get credentials paths
-            creds_path = self.settings.get('google_drive', {}).get('credentials_path')
-            token_path = self.settings.get('google_drive', {}).get('token_path')
-
-            # Connect to Google Sheets
-            connector = GoogleSheetsConnector(creds_path, token_path)
-            if not connector.authenticate():
-                logger.error("Failed to authenticate with Google Sheets")
-                return []
-
-            # Load categories (columns A-C: Tier1, Tier2, Tier3)
-            categories_data = connector.read_sheet(spreadsheet_id, f"{categories_tab}!A:C")
-            if not categories_data or len(categories_data) < 2:
-                logger.warning(f"No categories found in {categories_tab}")
-                return []
-
-            # Parse into hierarchical structure
-            category_tree = {}  # tier1 -> tier2 -> [tier3]
-
-            # Skip header row
-            for row in categories_data[1:]:
-                # Pad row to 3 columns if needed (Google Sheets trims trailing empty cells)
-                while len(row) < 3:
-                    row.append('')
-
-                tier1 = row[0].strip() if row[0] else ""
-                tier2 = row[1].strip() if len(row) > 1 and row[1] else ""
-                tier3 = row[2].strip() if len(row) > 2 and row[2] else ""
-
-                # Skip rows without tier1
-                if not tier1:
-                    continue
-
-                # Build hierarchy
-                if tier1 not in category_tree:
-                    category_tree[tier1] = {}
-
-                # Only add tier2 if it exists
-                if tier2:
-                    if tier2 not in category_tree[tier1]:
-                        category_tree[tier1][tier2] = []
-
-                    # Only add tier3 if it exists
-                    if tier3 and tier3 not in category_tree[tier1][tier2]:
-                        category_tree[tier1][tier2].append(tier3)
-
-            # Convert to expected format
-            result = []
-            for tier1, tier2_dict in category_tree.items():
-                tier2_categories = []
-                for tier2, tier3_list in tier2_dict.items():
-                    tier2_categories.append({
-                        'tier2': tier2,
-                        'tier3': tier3_list
-                    })
-
-                result.append({
-                    'tier1': tier1,
-                    'tier2_categories': tier2_categories
-                })
-
-            logger.info(f"Loaded category tree from Google Sheets: {len(result)} tier1 categories")
-            return result
-
-        except Exception as e:
-            logger.error(f"Error loading category tree from Google Sheets: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-            return []
 
     def _load_category_tree_from_database(self) -> List[Dict]:
         """
@@ -666,16 +434,25 @@ class TransactionCategorizer:
             if self._rule_matches(rule, transaction):
                 # Check if this is new Google Sheets format (tier1, tier2, tier3 at top level)
                 if 'tier1' in rule:
-                    tier1 = rule.get('tier1', '')
-                    tier2 = rule.get('tier2', '')
-                    tier3 = rule.get('tier3', '')
-                    owner = rule.get('owner', '')
+                    tier1 = rule.get('tier1')
+                    tier2 = rule.get('tier2')
+                    tier3 = rule.get('tier3')
+                    owner = rule.get('owner')
+                    # Convert None to empty string for consistency
+                    if tier1 is None:
+                        tier1 = ''
+                    if tier2 is None:
+                        tier2 = ''
+                    if tier3 is None:
+                        tier3 = ''
+                    if owner is None:
+                        owner = ''
                 else:
                     # Old YAML format (category dict)
                     category = rule.get('category', {})
-                    tier1 = category.get('tier1')
-                    tier2 = category.get('tier2')
-                    tier3 = category.get('tier3')
+                    tier1 = category.get('tier1') or ''
+                    tier2 = category.get('tier2') or ''
+                    tier3 = category.get('tier3') or ''
                     owner = ''
 
                 logger.debug(f"Rule matched: {tier1} > {tier2} > {tier3}" + (f" (owner: {owner})" if owner else ""))

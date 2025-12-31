@@ -19,90 +19,67 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def load_categories_from_sheets():
-    """Load categories from Google Sheets"""
+def load_categories_from_database():
+    """Load categories from SQLite database"""
     try:
-        from src.utils.categorizer import TransactionCategorizer
+        from backend.database.connection import get_db_context
+        from backend.database.models import Category
 
-        # Create categorizer instance to load categories
-        categorizer = TransactionCategorizer(
-            config_path="config/categorization.yaml",
-            settings_path="config/settings.yaml"
-        )
+        with get_db_context() as db:
+            # Get all categories
+            db_categories = db.query(Category).all()
 
-        return categorizer.category_tree
+            # Build hierarchical structure: tier1 -> tier2 -> [tier3]
+            category_tree = {}
+
+            for cat in db_categories:
+                tier1 = cat.tier1
+                tier2 = cat.tier2 or ""
+                tier3 = cat.tier3 or ""
+
+                # Initialize tier1 if not exists
+                if tier1 not in category_tree:
+                    category_tree[tier1] = {}
+
+                # Add tier2 if it exists
+                if tier2:
+                    if tier2 not in category_tree[tier1]:
+                        category_tree[tier1][tier2] = []
+
+                    # Add tier3 if it exists and not duplicate
+                    if tier3 and tier3 not in category_tree[tier1][tier2]:
+                        category_tree[tier1][tier2].append(tier3)
+
+            # Convert to expected list format
+            result = []
+            for tier1, tier2_dict in category_tree.items():
+                tier2_categories = []
+                for tier2, tier3_list in tier2_dict.items():
+                    tier2_categories.append({
+                        'tier2': tier2,
+                        'tier3': tier3_list
+                    })
+
+                result.append({
+                    'tier1': tier1,
+                    'tier2_categories': tier2_categories
+                })
+
+            logger.info(f"Loaded category tree from database: {len(result)} tier1 categories")
+            return result
+
     except Exception as e:
-        logger.error(f"Error loading categories from Google Sheets: {e}")
-        return []
-
-
-def save_categories_to_sheets(categories: List[Dict]):
-    """Save categories back to Google Sheets"""
-    try:
-        from src.connectors.google_sheets import GoogleSheetsConnector
-        import yaml
-
-        # Load settings
-        with open("config/settings.yaml", 'r', encoding='utf-8') as f:
-            settings = yaml.safe_load(f)
-
-        cat_config = settings.get('categorization', {})
-        sheets_config = cat_config.get('google_sheets', {})
-        spreadsheet_id = sheets_config.get('spreadsheet_id',
-                                          settings.get('google_sheets', {}).get('master_sheet_id'))
-        categories_tab = sheets_config.get('categories_tab', 'Categories')
-
-        # Get credentials
-        creds_path = settings.get('google_drive', {}).get('credentials_path')
-        token_path = settings.get('google_drive', {}).get('token_path')
-
-        # Connect to Google Sheets
-        connector = GoogleSheetsConnector(creds_path, token_path)
-        if not connector.authenticate():
-            raise Exception("Failed to authenticate with Google Sheets")
-
-        # Convert categories to rows format
-        rows = [['Tier1', 'Tier2', 'Tier3']]  # Header row
-
-        for tier1_cat in categories:
-            tier1 = tier1_cat.get('tier1')
-            tier2_categories = tier1_cat.get('tier2_categories', [])
-
-            # If tier1 has no tier2 children, write it with empty tier2/tier3
-            if not tier2_categories:
-                rows.append([tier1, '', ''])
-            else:
-                for tier2_cat in tier2_categories:
-                    tier2 = tier2_cat.get('tier2')
-                    tier3_list = tier2_cat.get('tier3', [])
-
-                    # If tier2 has no tier3 children, write it with empty tier3
-                    if not tier3_list:
-                        rows.append([tier1, tier2, ''])
-                    else:
-                        for tier3 in tier3_list:
-                            rows.append([tier1, tier2, tier3])
-
-        # Write to sheet (overwrites by default)
-        connector.write_sheet(
-            spreadsheet_id,
-            f"{categories_tab}!A1",
-            rows
-        )
-
-        return True
-    except Exception as e:
-        logger.error(f"Error saving categories to Google Sheets: {e}")
+        logger.error(f"Error loading categories from database: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        raise
+        return []
 
 
 @router.get("/tree", response_model=List[Tier1Category])
 async def get_category_tree():
     """Get complete 3-tier category tree"""
     try:
-        categories = load_categories_from_sheets()
+        categories = load_categories_from_database()
         return categories
     except Exception as e:
         logger.error(f"Error fetching category tree: {e}")
@@ -113,7 +90,7 @@ async def get_category_tree():
 async def get_tier1_categories():
     """Get list of tier1 categories"""
     try:
-        categories = load_categories_from_sheets()
+        categories = load_categories_from_database()
         return [cat['tier1'] for cat in categories]
     except Exception as e:
         logger.error(f"Error fetching tier1 categories: {e}")
@@ -124,7 +101,7 @@ async def get_tier1_categories():
 async def get_tier2_categories(tier1: str):
     """Get tier2 categories for a specific tier1"""
     try:
-        categories = load_categories_from_sheets()
+        categories = load_categories_from_database()
         for cat in categories:
             if cat['tier1'] == tier1:
                 return [t2['tier2'] for t2 in cat.get('tier2_categories', [])]
@@ -138,7 +115,7 @@ async def get_tier2_categories(tier1: str):
 async def get_tier3_categories(tier1: str, tier2: str):
     """Get tier3 categories for a specific tier1/tier2"""
     try:
-        categories = load_categories_from_sheets()
+        categories = load_categories_from_database()
         for cat in categories:
             if cat['tier1'] == tier1:
                 for t2 in cat.get('tier2_categories', []):
@@ -154,26 +131,32 @@ async def get_tier3_categories(tier1: str, tier2: str):
 async def create_tier1_category(name: str):
     """Create a new tier1 category"""
     try:
-        categories = load_categories_from_sheets()
+        from backend.database.connection import get_db_context
+        from backend.database.models import Category
 
-        # Check if already exists
-        if any(cat['tier1'] == name for cat in categories):
-            raise HTTPException(status_code=400, detail="Category already exists")
+        with get_db_context() as db:
+            # Check if already exists
+            existing = db.query(Category).filter(Category.tier1 == name, Category.tier2 == None).first()
+            if existing:
+                raise HTTPException(status_code=400, detail="Category already exists")
 
-        # Add new tier1
-        categories.append({
-            'tier1': name,
-            'tier2_categories': []
-        })
+            # Create new tier1 category (with empty tier2 and tier3)
+            new_category = Category(
+                tier1=name,
+                tier2=None,
+                tier3=None
+            )
+            db.add(new_category)
+            db.commit()
 
-        # Save back to sheets
-        save_categories_to_sheets(categories)
-
-        return {'message': 'Tier1 category created successfully', 'name': name}
+            logger.info(f"Created tier1 category: {name}")
+            return {'message': 'Tier1 category created successfully', 'name': name}
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error creating tier1 category: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -181,37 +164,41 @@ async def create_tier1_category(name: str):
 async def create_tier2_category(tier1: str, name: str):
     """Create a new tier2 category under a tier1"""
     try:
-        categories = load_categories_from_sheets()
+        from backend.database.connection import get_db_context
+        from backend.database.models import Category
 
-        # Find tier1
-        tier1_cat = None
-        for cat in categories:
-            if cat['tier1'] == tier1:
-                tier1_cat = cat
-                break
+        with get_db_context() as db:
+            # Check if tier1 exists
+            tier1_exists = db.query(Category).filter(Category.tier1 == tier1).first()
+            if not tier1_exists:
+                raise HTTPException(status_code=404, detail="Tier1 category not found")
 
-        if not tier1_cat:
-            raise HTTPException(status_code=404, detail="Tier1 category not found")
+            # Check if tier2 already exists
+            existing = db.query(Category).filter(
+                Category.tier1 == tier1,
+                Category.tier2 == name,
+                Category.tier3 == None
+            ).first()
+            if existing:
+                raise HTTPException(status_code=400, detail="Tier2 category already exists")
 
-        # Check if tier2 already exists
-        tier2_categories = tier1_cat.get('tier2_categories', [])
-        if any(t2['tier2'] == name for t2 in tier2_categories):
-            raise HTTPException(status_code=400, detail="Tier2 category already exists")
+            # Create new tier2 category
+            new_category = Category(
+                tier1=tier1,
+                tier2=name,
+                tier3=None
+            )
+            db.add(new_category)
+            db.commit()
 
-        # Add new tier2
-        tier2_categories.append({
-            'tier2': name,
-            'tier3': []
-        })
-
-        # Save back to sheets
-        save_categories_to_sheets(categories)
-
-        return {'message': 'Tier2 category created successfully', 'name': name}
+            logger.info(f"Created tier2 category: {tier1} > {name}")
+            return {'message': 'Tier2 category created successfully', 'name': name}
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error creating tier2 category: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -219,37 +206,44 @@ async def create_tier2_category(tier1: str, name: str):
 async def create_tier3_category(tier1: str, tier2: str, name: str):
     """Create a new tier3 category"""
     try:
-        categories = load_categories_from_sheets()
+        from backend.database.connection import get_db_context
+        from backend.database.models import Category
 
-        # Find tier1 and tier2
-        tier2_cat = None
-        for cat in categories:
-            if cat['tier1'] == tier1:
-                for t2 in cat.get('tier2_categories', []):
-                    if t2['tier2'] == tier2:
-                        tier2_cat = t2
-                        break
-                break
+        with get_db_context() as db:
+            # Check if tier2 exists
+            tier2_exists = db.query(Category).filter(
+                Category.tier1 == tier1,
+                Category.tier2 == tier2
+            ).first()
+            if not tier2_exists:
+                raise HTTPException(status_code=404, detail="Tier2 category not found")
 
-        if not tier2_cat:
-            raise HTTPException(status_code=404, detail="Tier2 category not found")
+            # Check if tier3 already exists
+            existing = db.query(Category).filter(
+                Category.tier1 == tier1,
+                Category.tier2 == tier2,
+                Category.tier3 == name
+            ).first()
+            if existing:
+                raise HTTPException(status_code=400, detail="Tier3 category already exists")
 
-        # Check if tier3 already exists
-        tier3_list = tier2_cat.get('tier3', [])
-        if name in tier3_list:
-            raise HTTPException(status_code=400, detail="Tier3 category already exists")
+            # Create new tier3 category
+            new_category = Category(
+                tier1=tier1,
+                tier2=tier2,
+                tier3=name
+            )
+            db.add(new_category)
+            db.commit()
 
-        # Add new tier3
-        tier3_list.append(name)
-
-        # Save back to sheets
-        save_categories_to_sheets(categories)
-
-        return {'message': 'Tier3 category created successfully', 'name': name}
+            logger.info(f"Created tier3 category: {tier1} > {tier2} > {name}")
+            return {'message': 'Tier3 category created successfully', 'name': name}
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error creating tier3 category: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -257,13 +251,10 @@ async def create_tier3_category(tier1: str, tier2: str, name: str):
 async def delete_tier1_category(tier1: str):
     """Delete a tier1 category (and all its children)"""
     try:
-        categories = load_categories_from_sheets()
+        categories = load_categories_from_database()
 
         # Remove tier1
         categories = [cat for cat in categories if cat['tier1'] != tier1]
-
-        # Save back to sheets
-        save_categories_to_sheets(categories)
 
         return {'message': 'Tier1 category deleted successfully'}
     except Exception as e:
@@ -275,7 +266,7 @@ async def delete_tier1_category(tier1: str):
 async def delete_tier2_category(tier1: str, tier2: str):
     """Delete a tier2 category (and all its children)"""
     try:
-        categories = load_categories_from_sheets()
+        categories = load_categories_from_database()
 
         # Find and remove tier2
         for cat in categories:
@@ -285,9 +276,6 @@ async def delete_tier2_category(tier1: str, tier2: str):
                     if t2['tier2'] != tier2
                 ]
                 break
-
-        # Save back to sheets
-        save_categories_to_sheets(categories)
 
         return {'message': 'Tier2 category deleted successfully'}
     except Exception as e:
@@ -299,7 +287,7 @@ async def delete_tier2_category(tier1: str, tier2: str):
 async def delete_tier3_category(tier1: str, tier2: str, tier3: str):
     """Delete a tier3 category"""
     try:
-        categories = load_categories_from_sheets()
+        categories = load_categories_from_database()
 
         # Find and remove tier3
         for cat in categories:
@@ -312,9 +300,6 @@ async def delete_tier3_category(tier1: str, tier2: str, tier3: str):
                         break
                 break
 
-        # Save back to sheets
-        save_categories_to_sheets(categories)
-
         return {'message': 'Tier3 category deleted successfully'}
     except Exception as e:
         logger.error(f"Error deleting tier3 category: {e}")
@@ -325,7 +310,7 @@ async def delete_tier3_category(tier1: str, tier2: str, tier3: str):
 async def rename_tier1_category(old_name: str, new_name: str):
     """Rename a tier1 category"""
     try:
-        categories = load_categories_from_sheets()
+        categories = load_categories_from_database()
 
         # Find and rename
         found = False
@@ -337,9 +322,6 @@ async def rename_tier1_category(old_name: str, new_name: str):
 
         if not found:
             raise HTTPException(status_code=404, detail="Category not found")
-
-        # Save back to sheets
-        save_categories_to_sheets(categories)
 
         return {'message': 'Tier1 category renamed successfully'}
     except HTTPException:

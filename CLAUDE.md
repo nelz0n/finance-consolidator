@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Finance consolidation tool that aggregates banking and investment data from multiple Czech financial institutions (ČSOB, Partners Bank, Wise) into a unified Google Sheets master file. The system processes CSV/XLSX files from Google Drive, normalizes transactions across different formats, and writes consolidated data to Google Sheets.
+Finance consolidation tool that aggregates banking and investment data from multiple Czech financial institutions (ČSOB, Partners Bank, Wise) into a SQLite database. The system provides a web UI for uploading CSV/XLSX files, automatically normalizing transactions, applying categorization rules, and browsing/managing financial data.
 
 ## Development Commands
 
@@ -20,23 +20,15 @@ pip install -r requirements.txt
 
 ### Running the Application
 ```bash
-# Process all new files
-python -m src.main
+# Start backend API server (from project root)
+uvicorn backend.app:app --reload --port 8000
 
-# Dry run mode (see what would be processed without writing)
-python -m src.main --dry-run
+# In a separate terminal, start frontend dev server
+cd frontend
+npm run dev
 
-# Process specific institution
-python -m src.main --institution csob
-
-# Process date range
-python -m src.main --from-date 2024-10-01 --to-date 2024-10-31
-
-# Verbose logging
-python -m src.main --verbose
-
-# Force reprocess (overwrite existing data)
-python -m src.main --force
+# Access web UI at:
+# http://localhost:5173
 ```
 
 ### Testing and Configuration Management
@@ -55,13 +47,14 @@ python scripts/add_institution.py
 ## Architecture Overview
 
 ### Data Flow Pipeline
-1. **File Scanner** - Lists files in Google Drive folder, matches filenames to institution patterns
+1. **File Upload** - Web UI accepts CSV/XLSX files via drag-and-drop or file picker
 2. **Parser** - Fully config-driven parser handles CSV and XLSX formats based on institution configuration
    - New institutions work automatically without code changes
    - Supports transformations (concatenate, strip, replace, split)
    - Backward compatible with old config format
-3. **Normalizer** - Converts raw data into standardized Transaction/Balance objects with currency normalization
-4. **Writer** - Formats and writes normalized data to Google Sheets
+3. **Normalizer** - Converts raw data into standardized Transaction objects with currency normalization
+4. **Categorizer** - Applies rule-based categorization (loaded from SQLite database)
+5. **Database Writer** - Persists transactions to SQLite database
 
 ### Core Components
 
@@ -72,36 +65,41 @@ python scripts/add_institution.py
 **Utilities** (`src/utils/`)
 - `CurrencyConverter` - Multi-currency conversion with configurable rates (CZK ↔ EUR)
 - `CNBExchangeRates` - Real-time exchange rates from Czech National Bank API
-- `TransactionCategorizer` - 3-tier categorization with AI fallback
-  - **NEW**: Rate limiting (10 req/min, 1000/day) with token bucket algorithm
-  - **NEW**: Exponential backoff retry logic for 429 errors (2s, 4s, 8s delays)
-  - **NEW**: Daily quota tracking to prevent exceeding API limits
+- `TransactionCategorizer` - 3-tier categorization with AI fallback (loads rules from SQLite database)
+  - Rate limiting (10 req/min, 1000/day) with token bucket algorithm
+  - Exponential backoff retry logic for 429 errors (2s, 4s, 8s delays)
+  - Daily quota tracking to prevent exceeding API limits
 - `date_parser` - Handles multiple date formats across institutions
 - `logger` - Centralized logging configuration
 
-**Connectors** (`src/connectors/`)
-- Google Drive API connector (list files, download)
-- Google Sheets API connector (read, write, append)
+**Backend API** (`backend/api/`)
+- `transactions.py` - CRUD operations for transactions, filtering, bulk updates, re-apply rules
+- `categories.py` - Category tree management (3-tier hierarchy)
+- `rules.py` - Categorization rules CRUD and rule testing
+- `dashboard.py` - Summary statistics and analytics
+- `files.py` - File upload and processing endpoint with background tasks
+- `settings.py` - Configuration management
+- `accounts.py` - Account descriptions management
 
 **Core Processing** (`src/core/`)
 - `FileParser` - Config-driven CSV/XLSX parser with transformation support
   - Automatically routes to correct parser based on `format.type` configuration
   - Applies transformations (concatenate, strip, replace, split) before mapping
   - Special handling for Partners Bank (concatenated columns A-D)
-  - **NEW**: `extract_from_filename` - Extracts account from filename (e.g., vypis_1330299329_*.xlsx → 1330299329)
-  - **NEW**: `account_bank_code` - Auto-appends bank code suffix (e.g., /6363 for Partners Bank → 1330299329/6363)
+  - `extract_from_filename` - Extracts account from filename (e.g., vypis_1330299329_*.xlsx → 1330299329)
+  - `account_bank_code` - Auto-appends bank code suffix (e.g., /6363 for Partners Bank → 1330299329/6363)
 - `DataNormalizer` - Converts raw data to Transaction objects
-  - **NEW**: Treats "/" as empty value in field cleaning (prevents "/" in empty counterparty_account)
-- `SheetsWriter` - Writes data to Google Sheets with append/overwrite modes
+  - Treats "/" as empty value in field cleaning (prevents "/" in empty counterparty_account)
+- `DatabaseWriter` - Persists normalized transactions to SQLite database
 
 ### Configuration System
 
 **Main Settings** (`config/settings.yaml`)
-- Google Drive/Sheets IDs and credentials paths
 - Currency rates and base currency
 - Processing options (batch size, date format, timezone)
 - Logging configuration
 - Data quality validation rules
+- Institution configuration paths
 
 **Institution Configs** (`config/institutions/*.yaml`)
 Each institution has a YAML config with:
@@ -159,14 +157,6 @@ owner_detection:
   default_owner: "Unknown"
 ```
 
-## Google API Setup Requirements
-
-1. Enable Google Drive API and Google Sheets API in Google Cloud Console
-2. Create OAuth 2.0 Client ID credentials for Desktop app
-3. Download credentials JSON to `data/credentials/google_credentials.json`
-4. First run will prompt for authentication and create `token.pickle`
-5. Configure Drive folder ID and Sheet ID in `config/settings.yaml`
-
 ## Adding New Institutions
 
 When adding support for a new financial institution:
@@ -184,10 +174,9 @@ The system auto-discovers institution configs if `institutions.auto_discover: tr
 ## Security Notes
 
 **Never commit:**
-- `data/credentials/google_credentials.json` (Google OAuth credentials)
-- `data/credentials/token.pickle` (Authentication token)
 - `data/` directory contents (contains sensitive financial data)
 - `.env` files
+- `data/finance.db` (SQLite database with transaction data)
 
 The `.gitignore` should already exclude these paths.
 
@@ -195,7 +184,8 @@ The `.gitignore` should already exclude these paths.
 
 - **Parser errors** - Log warning, skip row, continue processing
 - **Normalization errors** - Log warning, use defaults or None for missing fields
-- **Google API errors** - Log error, retry with exponential backoff
-- **Critical errors** - Log critical, exit gracefully
+- **Database errors** - Log error, rollback transaction, return error to UI
+- **File upload errors** - Return HTTP 400/500 with error details
+- **Critical errors** - Log critical, return error response to frontend
 
 All errors logged to `data/logs/finance_consolidator.log`.

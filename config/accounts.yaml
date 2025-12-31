@@ -1,0 +1,20 @@
+# Central account mapping
+# Maps account numbers to friendly descriptions
+# Institution is determined from upload context
+# Owner is managed via Settings UI
+
+accounts:
+  "1330299329/6363":
+    description: "Partners Bank Account"
+  "210621040/0300":
+    description: "ČSOB Main Account"
+  "2106210400/6363":
+    description: "Partners Bank Savings"
+  "243160770/0300":
+    description: "ČSOB Mirka Account"
+  "283337817/0300":
+    description: "ČSOB Credit Card"
+  "3581422554/6363":
+    description: "Partners Bank Secondary"
+  "8504-1096000105/6700":
+    description: "VUB Clearing Account"

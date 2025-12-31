@@ -70,13 +70,6 @@ async def get_app_settings():
 
         # Return user-editable settings
         return {
-            "google_drive": {
-                "input_folder_id": settings['google_drive']['input_folder_id']
-            },
-            "google_sheets": {
-                "master_sheet_id": settings['google_sheets']['master_sheet_id'],
-                "transactions_tab": settings['google_sheets']['transactions_tab']
-            },
             "currency": {
                 "base_currency": settings['currency']['base_currency'],
                 "use_cnb_api": settings['currency']['use_cnb_api'],
@@ -102,10 +95,6 @@ async def update_app_settings(updates: Dict[str, Any]):
             settings = yaml.safe_load(f)
 
         # Update settings
-        if "google_drive" in updates:
-            settings['google_drive'].update(updates['google_drive'])
-        if "google_sheets" in updates:
-            settings['google_sheets'].update(updates['google_sheets'])
         if "currency" in updates:
             settings['currency'].update(updates['currency'])
         if "processing" in updates:

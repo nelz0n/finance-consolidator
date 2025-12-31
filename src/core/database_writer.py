@@ -59,40 +59,50 @@ class DatabaseWriter:
         from backend.database.models import Institution, Owner, Account
         from sqlalchemy.exc import IntegrityError
 
+        # NOTE: Overwrite mode now updates existing transactions by transaction_id
+        # instead of wiping the entire database. Append mode skips duplicates.
         if mode == "overwrite":
-            logger.warning("OVERWRITE mode - clearing all transactions from database")
-            self.db_session.query(DBTransaction).delete()
-            self.db_session.commit()
-            # Clear session cache to prevent stale duplicate checks
-            self.db_session.expire_all()
-            logger.info("Database cleared and session cache refreshed")
+            logger.info("OVERWRITE mode - will update existing transactions and insert new ones")
 
         added = 0
         skipped = 0
         updated = 0
 
-        # Get or create institution/owner/account mappings
+        # Get institution mappings
         institution_map = self._get_institution_map()
-        owner_map = self._get_owner_map()
 
-        for txn in transactions:
+        logger.info(f"Institution map keys: {list(institution_map.keys())}")
+        if transactions:
+            logger.info(f"First transaction: institution={repr(transactions[0].institution)}, account={repr(transactions[0].account)}")
+
+        logger.info(f"Starting transaction loop: {len(transactions)} transactions to process")
+        for i, txn in enumerate(transactions):
             try:
                 # Check if transaction already exists
                 existing = self.db_session.query(DBTransaction).filter(
                     DBTransaction.transaction_id == txn.transaction_id
                 ).first()
 
+                # DEBUG: Log what we found
+                if i < 3 or existing:  # Log first 3 and any duplicates
+                    logger.info(f"Transaction {i+1}/{len(transactions)}: ID={txn.transaction_id}, existing={existing is not None}, mode={mode}")
+
                 if existing and mode == "append":
+                    logger.debug(f"Skipping duplicate in append mode: {txn.transaction_id}")
                     skipped += 1
                     continue
 
-                # Get foreign keys
-                institution_id = institution_map.get(txn.institution)
-                owner_id = owner_map.get(txn.owner)
-                account_id = self._get_or_create_account(txn.account, institution_id, owner_id)
+                # Get foreign keys (case-insensitive lookup for institution)
+                institution_id = institution_map.get(txn.institution.lower() if txn.institution else None)
 
-                # Convert Transaction model to database model
-                db_txn = self._transaction_to_db(txn, institution_id, owner_id, account_id)
+                # Get account description from central accounts.yaml
+                account_description = self._get_account_description(txn.account)
+
+                # Get or create account (no owner concept)
+                account_id = self._get_or_create_account(txn.account, institution_id, account_description)
+
+                # Convert Transaction model to database model (no owner_id)
+                db_txn = self._transaction_to_db(txn, institution_id, account_id)
 
                 if existing:
                     # Update existing transaction
@@ -105,13 +115,17 @@ class DatabaseWriter:
                     self.db_session.add(new_txn)
                     added += 1
 
-                # Commit in batches
-                if (added + updated) % 100 == 0:
-                    self.db_session.commit()
+                # CRITICAL FIX: Commit after each transaction to avoid conflicts with flush() in _get_or_create_account()
+                # The flush() can write pending transactions, causing IntegrityError on final commit
+                self.db_session.commit()
+
+                # Progress logging
+                if (added + updated) % 10 == 0:
                     logger.info(f"Written {added + updated} transactions to database...")
 
             except IntegrityError as e:
-                logger.warning(f"Duplicate transaction {txn.transaction_id}, skipping")
+                logger.error(f"IntegrityError for transaction {txn.transaction_id}: {str(e)}")
+                logger.error(f"Error details: {e.orig if hasattr(e, 'orig') else 'no orig'}")
                 self.db_session.rollback()
                 skipped += 1
             except Exception as e:
@@ -132,6 +146,28 @@ class DatabaseWriter:
         logger.info(f"Database write complete: {added} added, {updated} updated, {skipped} skipped")
         return summary
 
+    def _get_account_description(self, account_number: Optional[str]) -> Optional[str]:
+        """Get account description from central accounts.yaml config"""
+        import yaml
+        from pathlib import Path
+
+        if not account_number:
+            return None
+
+        try:
+            accounts_path = Path("config/accounts.yaml")
+            if not accounts_path.exists():
+                return None
+
+            with open(accounts_path, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
+                accounts = config.get('accounts', {})
+                account_info = accounts.get(account_number, {})
+                return account_info.get('description')
+        except Exception as e:
+            logger.warning(f"Failed to load account description: {e}")
+            return None
+
     def _get_institution_map(self) -> dict:
         """Get mapping of institution names to IDs"""
         from backend.database.models import Institution
@@ -151,23 +187,11 @@ class DatabaseWriter:
 
         return inst_map
 
-    def _get_owner_map(self) -> dict:
-        """Get mapping of owner names to IDs"""
-        from backend.database.models import Owner
-
-        owners = self.db_session.query(Owner).all()
-        owner_map = {}
-
-        for owner in owners:
-            owner_map[owner.name.lower()] = owner.id
-
-        return owner_map
-
     def _get_or_create_account(
         self,
         account_number: Optional[str],
         institution_id: Optional[int],
-        owner_id: Optional[int]
+        account_description: Optional[str]
     ) -> Optional[int]:
         """Get or create account record"""
         from backend.database.models import Account
@@ -181,26 +205,30 @@ class DatabaseWriter:
         ).first()
 
         if account:
+            # Update description if changed
+            if account_description and account.account_name != account_description:
+                account.account_name = account_description
+                logger.info(f"Updated account description: {account_number} -> {account_description}")
             return account.id
 
         # Create new account
         new_account = Account(
             account_number=account_number,
+            account_name=account_description,
             institution_id=institution_id,
-            owner_id=owner_id,
+            owner_id=None,  # No owner concept
             is_active=True
         )
         self.db_session.add(new_account)
         self.db_session.flush()
 
-        logger.info(f"Created new account: {account_number}")
+        logger.info(f"Created new account: {account_number} ({account_description or 'no description'})")
         return new_account.id
 
     def _transaction_to_db(
         self,
         txn: Transaction,
         institution_id: Optional[int],
-        owner_id: Optional[int],
         account_id: Optional[int]
     ) -> dict:
         """Convert Transaction model to database dict"""
@@ -229,7 +257,7 @@ class DatabaseWriter:
             "ai_confidence": to_float(txn.ai_confidence),
             "account_id": account_id,
             "institution_id": institution_id,
-            "owner_id": owner_id,
+            "owner_id": None,  # No owner concept, managed via account
             "transaction_type": txn.transaction_type,
             "counterparty_account": txn.counterparty_account,
             "counterparty_name": txn.counterparty_name,

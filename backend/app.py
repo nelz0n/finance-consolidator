@@ -28,7 +28,7 @@ logger.info(f"Logging initialized. Log file: {log_file}")
 # Create FastAPI app
 app = FastAPI(
     title="Finance Consolidator API",
-    description="REST API for Finance Consolidator - manage transactions, categories, and more (SQLite backend with optional Google Sheets export)",
+    description="REST API for Finance Consolidator - manage transactions, categories, and more (SQLite backend)",
     version="2.0.0",
     docs_url="/api/docs",
     redoc_url="/api/redoc",
@@ -57,39 +57,38 @@ async def health_check():
             "Transaction Browser",
             "Category Management",
             "Rules Editor",
-            "Dashboard",
-            "Google Sheets Export"
+            "Dashboard"
         ]
     }
 
 # Import and include routers
 try:
-    from backend.api import transactions, dashboard, files, categories, rules, settings, export
-    print("[OK] All routers imported successfully")
+    from backend.api import transactions, dashboard, files, categories, rules, settings, accounts
+    logger.info("[OK] All routers imported successfully")
 
     app.include_router(transactions.router, prefix="/api/v1", tags=["transactions"])
-    print("[OK] Registered transactions router")
+    logger.info("[OK] Registered transactions router")
 
     app.include_router(dashboard.router, prefix="/api/v1", tags=["dashboard"])
-    print("[OK] Registered dashboard router")
+    logger.info("[OK] Registered dashboard router")
 
     app.include_router(files.router, prefix="/api/v1/files", tags=["files"])
-    print("[OK] Registered files router")
+    logger.info("[OK] Registered files router")
 
     app.include_router(categories.router, prefix="/api/v1/categories", tags=["categories"])
-    print("[OK] Registered categories router")
+    logger.info("[OK] Registered categories router")
 
     app.include_router(rules.router, prefix="/api/v1/rules", tags=["rules"])
-    print("[OK] Registered rules router")
+    logger.info("[OK] Registered rules router")
 
     app.include_router(settings.router, prefix="/api/v1/settings", tags=["settings"])
-    print("[OK] Registered settings router")
+    logger.info("[OK] Registered settings router")
 
-    app.include_router(export.router, prefix="/api/v1", tags=["export"])
-    print("[OK] Registered export router")
+    app.include_router(accounts.router, prefix="/api/v1", tags=["accounts"])
+    logger.info("[OK] Registered accounts router")
 
 except Exception as e:
-    print(f"[ERROR] loading routers: {e}")
+    logger.error(f"[ERROR] loading routers: {e}")
     import traceback
     traceback.print_exc()
 

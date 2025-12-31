@@ -50,11 +50,12 @@ export const rulesApi = {
   test: (rule, transaction) => api.post('/rules/test', { rule, transaction })
 };
 
-// Export API
-export const exportApi = {
-  exportToSheets: (params) => api.post('/export/sheets', null, { params }),
-  getJobStatus: (jobId) => api.get(`/export/jobs/${jobId}`),
-  getJobs: (limit = 20) => api.get('/export/jobs', { params: { limit } })
+// Accounts API
+export const accountsApi = {
+  getAll: () => api.get('/accounts'),
+  save: (config) => api.post('/accounts', config),
+  update: (accountNumber, account) => api.put(`/accounts/${accountNumber}`, account),
+  delete: (accountNumber) => api.delete(`/accounts/${accountNumber}`)
 };
 
 // Export api for direct use

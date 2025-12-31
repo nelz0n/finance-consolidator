@@ -16,98 +16,53 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def load_rules_from_sheets():
-    """Load categorization rules from Google Sheets"""
+def load_rules_from_database():
+    """Load categorization rules from SQLite database"""
     try:
-        from src.utils.categorizer import TransactionCategorizer
+        from backend.database.connection import get_db_context
+        from backend.database.models import CategorizationRule
+        import json
 
-        # Create categorizer instance to load rules
-        categorizer = TransactionCategorizer(
-            config_path="config/categorization.yaml",
-            settings_path="config/settings.yaml",
-            reload_rules=True  # Force reload from sheets
-        )
+        with get_db_context() as db:
+            # Get all active rules
+            db_rules = db.query(CategorizationRule).filter(
+                CategorizationRule.is_active == True
+            ).order_by(CategorizationRule.priority.desc()).all()
 
-        return categorizer.manual_rules
+            rules = []
+            for rule in db_rules:
+                # Parse JSON conditions
+                conditions = json.loads(rule.conditions) if rule.conditions else {}
+
+                rule_dict = {
+                    'id': rule.id,
+                    'name': rule.name,
+                    'priority': rule.priority or 0,
+                    'description': rule.description,
+                    'category_tier1': rule.category_tier1,
+                    'category_tier2': rule.category_tier2,
+                    'category_tier3': rule.category_tier3,
+                    'is_internal_transfer': rule.mark_as_internal,
+                    'is_active': rule.is_active,
+                    **conditions  # Merge conditions into rule dict
+                }
+                rules.append(rule_dict)
+
+            logger.info(f"Loaded {len(rules)} rules from database")
+            return rules
+
     except Exception as e:
-        logger.error(f"Error loading rules from Google Sheets: {e}")
+        logger.error(f"Error loading rules from database: {e}")
         import traceback
         logger.error(traceback.format_exc())
         return []
-
-
-def save_rules_to_sheets(rules: List[Dict]):
-    """Save categorization rules back to Google Sheets"""
-    try:
-        from src.connectors.google_sheets import GoogleSheetsConnector
-        import yaml
-
-        # Load settings
-        with open("config/settings.yaml", 'r', encoding='utf-8') as f:
-            settings = yaml.safe_load(f)
-
-        cat_config = settings.get('categorization', {})
-        sheets_config = cat_config.get('google_sheets', {})
-        spreadsheet_id = sheets_config.get('spreadsheet_id',
-                                          settings.get('google_sheets', {}).get('master_sheet_id'))
-        rules_tab = sheets_config.get('rules_tab', 'Categorization_Rules')
-
-        # Get credentials
-        creds_path = settings.get('google_drive', {}).get('credentials_path')
-        token_path = settings.get('google_drive', {}).get('token_path')
-
-        # Connect to Google Sheets
-        connector = GoogleSheetsConnector(creds_path, token_path)
-        if not connector.authenticate():
-            raise Exception("Failed to authenticate with Google Sheets")
-
-        # Convert rules to rows format
-        # Headers: Priority, Description_contains, Institution_exact, Counterparty_account_exact,
-        #          Counterparty_name_contains, Variable_symbol_exact, Type_contains,
-        #          Amount_czk_min, Amount_czk_max, Tier1, Tier2, Tier3, Owner
-        rows = [[
-            'Priority', 'Description_contains', 'Institution_exact', 'Counterparty_account_exact',
-            'Counterparty_name_contains', 'Variable_symbol_exact', 'Type_contains',
-            'Amount_czk_min', 'Amount_czk_max', 'Tier1', 'Tier2', 'Tier3', 'Owner'
-        ]]
-
-        for rule in rules:
-            rows.append([
-                rule.get('priority', 0),
-                rule.get('description_contains', ''),
-                rule.get('institution_exact', ''),
-                rule.get('counterparty_account_exact', ''),
-                rule.get('counterparty_name_contains', ''),
-                rule.get('variable_symbol_exact', ''),
-                rule.get('type_contains', ''),
-                rule.get('amount_czk_min') if rule.get('amount_czk_min') is not None else '',
-                rule.get('amount_czk_max') if rule.get('amount_czk_max') is not None else '',
-                rule.get('tier1', ''),
-                rule.get('tier2', ''),
-                rule.get('tier3', ''),
-                rule.get('owner', '')
-            ])
-
-        # Write to sheet (overwrites by default)
-        connector.write_sheet(
-            spreadsheet_id,
-            f"{rules_tab}!A1",
-            rows
-        )
-
-        return True
-    except Exception as e:
-        logger.error(f"Error saving rules to Google Sheets: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        raise
 
 
 @router.get("", response_model=List[CategorizationRule])
 async def list_rules():
     """Get all categorization rules"""
     try:
-        rules = load_rules_from_sheets()
+        rules = load_rules_from_database()
 
         # Convert to response model format
         formatted_rules = []
@@ -123,9 +78,9 @@ async def list_rules():
                 'type_contains': rule.get('type_contains', ''),
                 'amount_czk_min': rule.get('amount_czk_min'),
                 'amount_czk_max': rule.get('amount_czk_max'),
-                'tier1': rule.get('tier1', ''),
-                'tier2': rule.get('tier2', ''),
-                'tier3': rule.get('tier3', ''),
+                'tier1': rule.get('category_tier1', ''),
+                'tier2': rule.get('category_tier2', ''),
+                'tier3': rule.get('category_tier3', ''),
                 'owner': rule.get('owner', '')
             })
 
@@ -139,39 +94,67 @@ async def list_rules():
 async def create_rule(rule: RuleCreate):
     """Create a new categorization rule"""
     try:
-        rules = load_rules_from_sheets()
+        from backend.database.connection import get_db_context
+        from backend.database.models import CategorizationRule as DBRule
+        import json
 
-        # Create new rule dict
-        new_rule = {
-            'priority': rule.priority,
-            'description_contains': rule.description_contains or '',
-            'institution_exact': rule.institution_exact or '',
-            'counterparty_account_exact': rule.counterparty_account_exact or '',
-            'counterparty_name_contains': rule.counterparty_name_contains or '',
-            'variable_symbol_exact': rule.variable_symbol_exact or '',
-            'type_contains': rule.type_contains or '',
-            'amount_czk_min': rule.amount_czk_min,
-            'amount_czk_max': rule.amount_czk_max,
-            'tier1': rule.tier1,
-            'tier2': rule.tier2,
-            'tier3': rule.tier3,
-            'owner': rule.owner or ''
-        }
+        # Build conditions JSON
+        conditions = {}
+        if rule.description_contains:
+            conditions['description_contains'] = rule.description_contains
+        if rule.institution_exact:
+            conditions['institution_exact'] = rule.institution_exact
+        if rule.counterparty_account_exact:
+            conditions['counterparty_account_exact'] = rule.counterparty_account_exact
+        if rule.counterparty_name_contains:
+            conditions['counterparty_name_contains'] = rule.counterparty_name_contains
+        if rule.variable_symbol_exact:
+            conditions['variable_symbol_exact'] = rule.variable_symbol_exact
+        if rule.type_contains:
+            conditions['type_contains'] = rule.type_contains
+        if rule.amount_czk_min is not None:
+            conditions['amount_czk_min'] = float(rule.amount_czk_min)
+        if rule.amount_czk_max is not None:
+            conditions['amount_czk_max'] = float(rule.amount_czk_max)
 
-        # Add to rules list
-        rules.append(new_rule)
+        # Create database rule
+        with get_db_context() as db:
+            db_rule = DBRule(
+                name=f"Rule_{rule.tier1}_{rule.tier2}_{rule.tier3}",
+                description=rule.description_contains or f"Auto-categorize to {rule.tier1}/{rule.tier2}/{rule.tier3}",
+                priority=rule.priority,
+                is_active=True,
+                conditions=json.dumps(conditions),
+                category_tier1=rule.tier1,
+                category_tier2=rule.tier2,
+                category_tier3=rule.tier3,
+                mark_as_internal=False
+            )
+            db.add(db_rule)
+            db.commit()
+            db.refresh(db_rule)
 
-        # Sort by priority (higher first)
-        rules.sort(key=lambda r: r.get('priority', 0), reverse=True)
-
-        # Save back to sheets
-        save_rules_to_sheets(rules)
-
-        # Return created rule with ID
-        new_rule['id'] = len(rules) - 1
-        return new_rule
+            # Return formatted rule
+            return {
+                'id': db_rule.id,
+                'priority': db_rule.priority,
+                'description_contains': rule.description_contains or '',
+                'institution_exact': rule.institution_exact or '',
+                'counterparty_account_exact': rule.counterparty_account_exact or '',
+                'counterparty_name_contains': rule.counterparty_name_contains or '',
+                'variable_symbol_exact': rule.variable_symbol_exact or '',
+                'type_contains': rule.type_contains or '',
+                'amount_czk_min': rule.amount_czk_min,
+                'amount_czk_max': rule.amount_czk_max,
+                'tier1': rule.tier1,
+                'tier2': rule.tier2,
+                'tier3': rule.tier3,
+                'owner': rule.owner or ''
+            }
     except Exception as e:
         logger.error(f"Error creating rule: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -179,42 +162,70 @@ async def create_rule(rule: RuleCreate):
 async def update_rule(rule_id: int, rule: RuleUpdate):
     """Update an existing categorization rule"""
     try:
-        rules = load_rules_from_sheets()
+        from backend.database.connection import get_db_context
+        from backend.database.models import CategorizationRule as DBRule
+        import json
 
-        if rule_id < 0 or rule_id >= len(rules):
-            raise HTTPException(status_code=404, detail="Rule not found")
+        with get_db_context() as db:
+            # Find existing rule
+            db_rule = db.query(DBRule).filter(DBRule.id == rule_id).first()
+            if not db_rule:
+                raise HTTPException(status_code=404, detail="Rule not found")
 
-        # Update rule
-        updated_rule = {
-            'priority': rule.priority,
-            'description_contains': rule.description_contains or '',
-            'institution_exact': rule.institution_exact or '',
-            'counterparty_account_exact': rule.counterparty_account_exact or '',
-            'counterparty_name_contains': rule.counterparty_name_contains or '',
-            'variable_symbol_exact': rule.variable_symbol_exact or '',
-            'type_contains': rule.type_contains or '',
-            'amount_czk_min': rule.amount_czk_min,
-            'amount_czk_max': rule.amount_czk_max,
-            'tier1': rule.tier1,
-            'tier2': rule.tier2,
-            'tier3': rule.tier3,
-            'owner': rule.owner or ''
-        }
+            # Build conditions JSON
+            conditions = {}
+            if rule.description_contains:
+                conditions['description_contains'] = rule.description_contains
+            if rule.institution_exact:
+                conditions['institution_exact'] = rule.institution_exact
+            if rule.counterparty_account_exact:
+                conditions['counterparty_account_exact'] = rule.counterparty_account_exact
+            if rule.counterparty_name_contains:
+                conditions['counterparty_name_contains'] = rule.counterparty_name_contains
+            if rule.variable_symbol_exact:
+                conditions['variable_symbol_exact'] = rule.variable_symbol_exact
+            if rule.type_contains:
+                conditions['type_contains'] = rule.type_contains
+            if rule.amount_czk_min is not None:
+                conditions['amount_czk_min'] = float(rule.amount_czk_min)
+            if rule.amount_czk_max is not None:
+                conditions['amount_czk_max'] = float(rule.amount_czk_max)
 
-        rules[rule_id] = updated_rule
+            # Update rule fields
+            db_rule.name = f"Rule_{rule.tier1}_{rule.tier2}_{rule.tier3}"
+            db_rule.description = rule.description_contains or f"Auto-categorize to {rule.tier1}/{rule.tier2}/{rule.tier3}"
+            db_rule.priority = rule.priority
+            db_rule.conditions = json.dumps(conditions)
+            db_rule.category_tier1 = rule.tier1
+            db_rule.category_tier2 = rule.tier2
+            db_rule.category_tier3 = rule.tier3
 
-        # Sort by priority (higher first)
-        rules.sort(key=lambda r: r.get('priority', 0), reverse=True)
+            db.commit()
+            db.refresh(db_rule)
 
-        # Save back to sheets
-        save_rules_to_sheets(rules)
-
-        updated_rule['id'] = rule_id
-        return updated_rule
+            # Return formatted rule
+            return {
+                'id': db_rule.id,
+                'priority': db_rule.priority,
+                'description_contains': rule.description_contains or '',
+                'institution_exact': rule.institution_exact or '',
+                'counterparty_account_exact': rule.counterparty_account_exact or '',
+                'counterparty_name_contains': rule.counterparty_name_contains or '',
+                'variable_symbol_exact': rule.variable_symbol_exact or '',
+                'type_contains': rule.type_contains or '',
+                'amount_czk_min': rule.amount_czk_min,
+                'amount_czk_max': rule.amount_czk_max,
+                'tier1': rule.tier1,
+                'tier2': rule.tier2,
+                'tier3': rule.tier3,
+                'owner': rule.owner or ''
+            }
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error updating rule: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -222,22 +233,26 @@ async def update_rule(rule_id: int, rule: RuleUpdate):
 async def delete_rule(rule_id: int):
     """Delete a categorization rule"""
     try:
-        rules = load_rules_from_sheets()
+        from backend.database.connection import get_db_context
+        from backend.database.models import CategorizationRule as DBRule
 
-        if rule_id < 0 or rule_id >= len(rules):
-            raise HTTPException(status_code=404, detail="Rule not found")
+        with get_db_context() as db:
+            # Find and delete rule
+            db_rule = db.query(DBRule).filter(DBRule.id == rule_id).first()
+            if not db_rule:
+                raise HTTPException(status_code=404, detail="Rule not found")
 
-        # Remove rule
-        deleted_rule = rules.pop(rule_id)
+            rule_name = db_rule.name
+            db.delete(db_rule)
+            db.commit()
 
-        # Save back to sheets
-        save_rules_to_sheets(rules)
-
-        return {'message': 'Rule deleted successfully', 'deleted': deleted_rule}
+            return {'message': 'Rule deleted successfully', 'deleted': {'id': rule_id, 'name': rule_name}}
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error deleting rule: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 

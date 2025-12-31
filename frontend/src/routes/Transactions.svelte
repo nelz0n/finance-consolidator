@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { transactionsApi, categoriesApi } from '../lib/api.js';
+  import { transactionsApi, categoriesApi, accountsApi } from '../lib/api.js';
 
   // Data
   let transactions = [];
@@ -9,27 +9,60 @@
   let pagination = {};
   let categoryTree = [];
   let owners = [];
+  let accounts = {}; // Map of account_number -> description
+  let accountNumbers = []; // List of unique account numbers
+
+  // Mass selection and batch operations
+  let selectedTransactions = [];
+  let selectMode = false;
 
   // Re-apply rules
   let reapplyingRules = false;
   let reapplySuccess = null;
   let reapplyStats = null;
 
+  // Edit/Delete modal
+  let showEditModal = false;
+  let editingTransaction = null;
+  let editForm = {
+    description: '',
+    amount: '',
+    currency: '',
+    category_tier1: '',
+    category_tier2: '',
+    category_tier3: '',
+    counterparty_name: '',
+    counterparty_account: '',
+    counterparty_bank: '',
+    variable_symbol: '',
+    constant_symbol: '',
+    specific_symbol: '',
+    transaction_type: '',
+    note: '',
+    owner: ''
+  };
+
+  // Inline category editing
+  let inlineEditingCell = null;  // { txnId, field }
+  let inlineTempValue = { tier1: '', tier2: '', tier3: '' };
+
   // Filters
   let searchQuery = '';
   let searchDebounceTimer = null;
   let fromDate = '';
   let toDate = '';
-  let selectedOwner = '';
+  let selectedInstitution = '';
   let selectedTier1 = '';
   let selectedTier2 = '';
   let selectedTier3 = '';
   let showInternalOnly = 'all'; // 'all', 'internal', 'exclude'
   let minAmount = '';
   let maxAmount = '';
-  let selectedInstitution = '';
+  let selectedType = '';
+  let selectedAccount = '';
   let showAdvancedFilters = false;
   let institutions = [];
+  let transactionTypes = [];
 
   // Pagination
   let currentPage = 1;
@@ -42,16 +75,20 @@
   // Column customization
   let showColumnSelector = false;
   const allColumns = [
+    { key: 'actions', label: 'Actions', default: true, sortable: false },
     { key: 'date', label: 'Date', default: true, sortable: true },
     { key: 'description', label: 'Description', default: true, sortable: true },
-    { key: 'amount', label: 'Amount', default: true, sortable: true },
-    { key: 'currency', label: 'Currency', default: false, sortable: false },
+    { key: 'amount', label: 'Amount (Original)', default: true, sortable: true },
+    { key: 'currency', label: 'Currency', default: true, sortable: false },
+    { key: 'amount_czk', label: 'Amount (CZK)', default: false, sortable: true },
     { key: 'category_tier1', label: 'Category (Tier1)', default: true, sortable: true },
     { key: 'category_tier2', label: 'Category (Tier2)', default: false, sortable: true },
     { key: 'category_tier3', label: 'Category (Tier3)', default: false, sortable: true },
-    { key: 'owner', label: 'Owner', default: true, sortable: true },
-    { key: 'institution', label: 'Institution', default: false, sortable: true },
+    { key: 'categorization_source', label: 'Category Source', default: false, sortable: true },
+    { key: 'ai_confidence', label: 'AI Confidence', default: false, sortable: true },
+    { key: 'institution', label: 'Institution', default: false, sortable: false },
     { key: 'account', label: 'Account', default: false, sortable: false },
+    { key: 'account_description', label: 'Account Description', default: false, sortable: false },
     { key: 'is_internal_transfer', label: 'Internal Transfer', default: false, sortable: false },
     { key: 'counterparty_name', label: 'Counterparty', default: false, sortable: false },
     { key: 'counterparty_account', label: 'Counterparty Account', default: false, sortable: false },
@@ -60,6 +97,8 @@
   ];
 
   let visibleColumns = {};
+  let columnOrder = [];  // Array of column keys in display order
+  let draggedIndex = null;
 
   // Load column preferences from localStorage
   function loadColumnPreferences() {
@@ -99,6 +138,69 @@
     saveColumnPreferences();
   }
 
+  function selectAllColumns() {
+    allColumns.forEach(col => {
+      visibleColumns[col.key] = true;
+    });
+    saveColumnPreferences();
+  }
+
+  function deselectAllColumns() {
+    allColumns.forEach(col => {
+      visibleColumns[col.key] = false;
+    });
+    saveColumnPreferences();
+  }
+
+  // Column order management
+  function initializeColumnOrder() {
+    const savedOrder = localStorage.getItem('transactionColumnOrder');
+    if (savedOrder) {
+      try {
+        columnOrder = JSON.parse(savedOrder);
+        // Validate against allColumns
+        const validKeys = new Set(allColumns.map(c => c.key));
+        columnOrder = columnOrder.filter(k => validKeys.has(k));
+
+        // Add any new columns not in saved order
+        allColumns.forEach(col => {
+          if (!columnOrder.includes(col.key)) {
+            columnOrder.push(col.key);
+          }
+        });
+      } catch (e) {
+        columnOrder = allColumns.map(c => c.key);
+      }
+    } else {
+      columnOrder = allColumns.map(c => c.key);
+    }
+  }
+
+  function saveColumnOrder() {
+    localStorage.setItem('transactionColumnOrder', JSON.stringify(columnOrder));
+  }
+
+  function handleDragStart(e, index) {
+    draggedIndex = index;
+    e.dataTransfer.effectAllowed = 'move';
+  }
+
+  function handleDrop(e, dropIndex) {
+    e.preventDefault();
+
+    if (draggedIndex === null || draggedIndex === dropIndex) {
+      return;
+    }
+
+    const newOrder = [...columnOrder];
+    const [draggedItem] = newOrder.splice(draggedIndex, 1);
+    newOrder.splice(dropIndex, 0, draggedItem);
+
+    columnOrder = newOrder;
+    saveColumnOrder();
+    draggedIndex = null;
+  }
+
   // Computed
   $: tier2Options = selectedTier1 ? getTier2Options(selectedTier1) : [];
   $: tier3Options = selectedTier1 && selectedTier2 ? getTier3Options(selectedTier1, selectedTier2) : [];
@@ -113,12 +215,24 @@
     }
   }
 
+  async function loadAccounts() {
+    try {
+      const response = await accountsApi.getAll();
+      accounts = response.data.accounts || {};
+    } catch (err) {
+      console.error('Failed to load accounts:', err);
+      accounts = {};
+    }
+  }
+
   async function loadAllOwners() {
     try {
-      // Load transactions to extract unique owners (use max limit of 200)
+      // Load transactions to extract unique owners, institutions, accounts, types (use max limit of 200)
       const response = await transactionsApi.getAll({ limit: 200 });
       const ownerSet = new Set();
       const institutionSet = new Set();
+      const accountSet = new Set();
+      const typeSet = new Set();
 
       response.data.data.forEach(txn => {
         if (txn.owner && txn.owner !== '-') {
@@ -127,12 +241,20 @@
         if (txn.institution && txn.institution !== '-') {
           institutionSet.add(txn.institution);
         }
+        if (txn.account_number && txn.account_number !== '-') {
+          accountSet.add(txn.account_number);
+        }
+        if (txn.transaction_type && txn.transaction_type !== '-') {
+          typeSet.add(txn.transaction_type);
+        }
       });
 
       owners = Array.from(ownerSet).sort();
       institutions = Array.from(institutionSet).sort();
+      accountNumbers = Array.from(accountSet).sort();
+      transactionTypes = Array.from(typeSet).sort();
     } catch (err) {
-      console.error('Failed to load owners:', err);
+      console.error('Failed to load metadata:', err);
     }
   }
 
@@ -152,7 +274,6 @@
       if (searchQuery.trim()) params.search = searchQuery.trim();
       if (fromDate) params.from_date = fromDate;
       if (toDate) params.to_date = toDate;
-      if (selectedOwner) params.owner = selectedOwner;
       if (selectedInstitution) params.institution = selectedInstitution;
       if (selectedTier1) params.category_tier1 = selectedTier1;
       if (selectedTier2) params.category_tier2 = selectedTier2;
@@ -161,9 +282,20 @@
       if (showInternalOnly === 'exclude') params.is_internal_transfer = false;
       if (minAmount) params.min_amount = parseFloat(minAmount);
       if (maxAmount) params.max_amount = parseFloat(maxAmount);
+      // Note: account and type filters handled client-side for now
 
       const response = await transactionsApi.getAll(params);
-      transactions = response.data.data;
+      let txns = response.data.data;
+
+      // Client-side filtering for account and type (until backend supports them)
+      if (selectedAccount) {
+        txns = txns.filter(t => t.account_number === selectedAccount);
+      }
+      if (selectedType) {
+        txns = txns.filter(t => t.transaction_type === selectedType);
+      }
+
+      transactions = txns;
       pagination = response.data.pagination;
     } catch (err) {
       error = err.message;
@@ -215,7 +347,6 @@
     searchQuery = '';
     fromDate = '';
     toDate = '';
-    selectedOwner = '';
     selectedInstitution = '';
     selectedTier1 = '';
     selectedTier2 = '';
@@ -223,6 +354,8 @@
     showInternalOnly = 'all';
     minAmount = '';
     maxAmount = '';
+    selectedType = '';
+    selectedAccount = '';
     currentPage = 1;
     loadTransactions();
   }
@@ -254,7 +387,9 @@
 
   onMount(async () => {
     loadColumnPreferences();
+    initializeColumnOrder();
     await loadCategoryTree();
+    await loadAccounts();
     await loadAllOwners();
     await loadTransactions();
   });
@@ -267,22 +402,48 @@
     return `${parseFloat(amount).toFixed(2)} ${currency}`;
   }
 
+  function formatAmountWithSpaces(amount) {
+    if (!amount && amount !== 0) return '-';
+    const num = parseFloat(amount);
+    // Split into integer and decimal parts
+    const [intPart, decPart] = num.toFixed(2).split('.');
+    // Add space as thousand separator
+    const formattedInt = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+    return `${formattedInt}.${decPart}`;
+  }
+
   function getSortIcon(column) {
     if (sortBy !== column) return '⇅';
     return sortOrder === 'asc' ? '↑' : '↓';
   }
 
   function getCellValue(txn, columnKey) {
-    const value = txn[columnKey];
+    // Map column keys to actual API field names
+    let value;
+    if (columnKey === 'account') {
+      value = txn.account_number;
+    } else if (columnKey === 'type') {
+      value = txn.transaction_type;
+    } else if (columnKey === 'account_description') {
+      // Get description from accounts config
+      const accountNum = txn.account_number;
+      value = accountNum && accounts[accountNum] ? accounts[accountNum].description : '-';
+    } else {
+      value = txn[columnKey];
+    }
 
     // Format based on column type
     switch (columnKey) {
       case 'date':
         return formatDate(value);
       case 'amount':
-        return formatAmount(value, txn.currency);
+        return formatAmountWithSpaces(value);
+      case 'amount_czk':
+        return formatAmountWithSpaces(value);
       case 'is_internal_transfer':
-        return value === 'TRUE' ? 'Yes' : 'No';
+        return value === true ? 'Yes' : 'No';
+      case 'ai_confidence':
+        return value ? `${value}%` : '-';
       case 'category_tier1':
       case 'category_tier2':
       case 'category_tier3':
@@ -296,6 +457,10 @@
     if (columnKey === 'amount') {
       if (parseFloat(txn.amount) < 0) return 'negative';
       if (parseFloat(txn.amount) > 0) return 'positive';
+    }
+    if (columnKey === 'amount_czk') {
+      if (parseFloat(txn.amount_czk) < 0) return 'negative';
+      if (parseFloat(txn.amount_czk) > 0) return 'positive';
     }
     return '';
   }
@@ -414,7 +579,6 @@ AI categorization will NOT be called.`;
       const params = {
         from_date: fromDate || null,
         to_date: toDate || null,
-        owner: selectedOwner || null,
         institution: selectedInstitution || null,
         category_tier1: selectedTier1 || null,
         category_tier2: selectedTier2 || null,
@@ -446,12 +610,226 @@ AI categorization will NOT be called.`;
       reapplyingRules = false;
     }
   }
+
+  function openEditModal(txn) {
+    editingTransaction = txn;
+    editForm = {
+      description: txn.description || '',
+      amount: txn.amount || '',
+      currency: txn.currency || 'CZK',
+      category_tier1: txn.category_tier1 || '',
+      category_tier2: txn.category_tier2 || '',
+      category_tier3: txn.category_tier3 || '',
+      counterparty_name: txn.counterparty_name || '',
+      counterparty_account: txn.counterparty_account || '',
+      counterparty_bank: txn.counterparty_bank || '',
+      variable_symbol: txn.variable_symbol || '',
+      constant_symbol: txn.constant_symbol || '',
+      specific_symbol: txn.specific_symbol || '',
+      transaction_type: txn.transaction_type || '',
+      note: txn.note || ''
+    };
+    showEditModal = true;
+  }
+
+  function closeEditModal() {
+    showEditModal = false;
+    editingTransaction = null;
+  }
+
+  async function saveTransaction() {
+    try {
+      loading = true;
+      await transactionsApi.update(editingTransaction.id, editForm);
+      closeEditModal();
+      await loadTransactions();
+    } catch (err) {
+      error = `Failed to update transaction: ${err.message}`;
+      setTimeout(() => { error = null; }, 5000);
+    } finally {
+      loading = false;
+    }
+  }
+
+  async function deleteTransaction(txn) {
+    if (!confirm(`Delete transaction: ${txn.description}?`)) {
+      return;
+    }
+
+    try {
+      loading = true;
+      await transactionsApi.delete(txn.id);
+      await loadTransactions();
+    } catch (err) {
+      error = `Failed to delete transaction: ${err.message}`;
+      setTimeout(() => { error = null; }, 5000);
+    } finally {
+      loading = false;
+    }
+  }
+
+  // Mass selection functions
+  function toggleSelectAll() {
+    if (selectedTransactions.length === transactions.length) {
+      selectedTransactions = [];
+    } else {
+      selectedTransactions = transactions.map(t => t.id);
+    }
+  }
+
+  async function selectAllFiltered() {
+    try {
+      loading = true;
+
+      // Build same filter params as loadTransactions, but fetch ALL (no pagination)
+      const params = {
+        skip: 0,
+        limit: 100000, // Very high limit to get all
+        sort_by: sortBy,
+        sort_order: sortOrder
+      };
+
+      // Add filters if set
+      if (searchQuery.trim()) params.search = searchQuery.trim();
+      if (fromDate) params.from_date = fromDate;
+      if (toDate) params.to_date = toDate;
+      if (selectedInstitution) params.institution = selectedInstitution;
+      if (selectedTier1) params.category_tier1 = selectedTier1;
+      if (selectedTier2) params.category_tier2 = selectedTier2;
+      if (selectedTier3) params.category_tier3 = selectedTier3;
+      if (showInternalOnly === 'internal') params.is_internal_transfer = true;
+      if (showInternalOnly === 'exclude') params.is_internal_transfer = false;
+      if (minAmount) params.min_amount = parseFloat(minAmount);
+      if (maxAmount) params.max_amount = parseFloat(maxAmount);
+
+      const response = await transactionsApi.getAll(params);
+      let allTxns = response.data.data;
+
+      // Client-side filtering for account and type (if set)
+      if (selectedAccount) {
+        allTxns = allTxns.filter(t => t.account_number === selectedAccount);
+      }
+      if (selectedType) {
+        allTxns = allTxns.filter(t => t.transaction_type === selectedType);
+      }
+
+      // Select all IDs
+      selectedTransactions = allTxns.map(t => t.id);
+
+    } catch (err) {
+      error = `Failed to select all filtered: ${err.message}`;
+      setTimeout(() => { error = null; }, 5000);
+    } finally {
+      loading = false;
+    }
+  }
+
+  function toggleTransactionSelection(id) {
+    if (selectedTransactions.includes(id)) {
+      selectedTransactions = selectedTransactions.filter(tid => tid !== id);
+    } else {
+      selectedTransactions = [...selectedTransactions, id];
+    }
+  }
+
+  async function deleteBatchTransactions() {
+    const count = selectedTransactions.length;
+    if (!confirm(`Delete ${count} transaction(s)? This cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      loading = true;
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const id of selectedTransactions) {
+        try {
+          await transactionsApi.delete(id);
+          successCount++;
+        } catch (err) {
+          failCount++;
+          console.error(`Failed to delete transaction ${id}:`, err);
+        }
+      }
+
+      if (failCount === 0) {
+        error = `✅ Successfully deleted ${successCount} transaction(s)`;
+      } else {
+        error = `⚠️ Deleted ${successCount}, failed ${failCount} transaction(s)`;
+      }
+
+      setTimeout(() => { error = null; }, 5000);
+
+      selectedTransactions = [];
+      selectMode = false;
+      await loadTransactions();
+    } catch (err) {
+      error = `Failed to delete transactions: ${err.message}`;
+      setTimeout(() => { error = null; }, 5000);
+    } finally {
+      loading = false;
+    }
+  }
+
+  // Inline category editing functions
+  function startInlineEdit(txnId, field, txn) {
+    inlineEditingCell = { txnId, field };
+    inlineTempValue = {
+      tier1: txn.category_tier1 || '',
+      tier2: txn.category_tier2 || '',
+      tier3: txn.category_tier3 || ''
+    };
+  }
+
+  async function saveInlineEdit(txnId) {
+    if (!inlineEditingCell) return;
+
+    try {
+      const updates = {
+        category_tier1: inlineTempValue.tier1,
+        category_tier2: inlineTempValue.tier2,
+        category_tier3: inlineTempValue.tier3
+      };
+
+      await transactionsApi.update(txnId, updates);
+      await loadTransactions();
+    } catch (err) {
+      error = `Failed to update category: ${err.message}`;
+      setTimeout(() => { error = null; }, 5000);
+    } finally {
+      inlineEditingCell = null;
+    }
+  }
+
+  function handleInlineKeydown(e, txnId) {
+    if (e.key === 'Escape') {
+      inlineEditingCell = null;
+      e.preventDefault();
+    } else if (e.key === 'Enter') {
+      saveInlineEdit(txnId);
+      e.preventDefault();
+    }
+  }
 </script>
 
 <div class="transactions">
   <div class="header">
     <h1>Transactions</h1>
     <div class="header-actions">
+      <button class="btn btn-select" on:click={() => { selectMode = !selectMode; selectedTransactions = []; }}>
+        {selectMode ? '❌ Cancel Selection' : '☑️ Select'}
+      </button>
+      {#if selectMode}
+        <button class="btn btn-select-all" on:click={selectAllFiltered} disabled={loading}>
+          ☑️☑️ Select All Filtered ({pagination.total_items || 0})
+        </button>
+      {/if}
+      {#if selectMode && selectedTransactions.length > 0}
+        <button class="btn btn-danger" on:click={deleteBatchTransactions}>
+          🗑️ Delete Selected ({selectedTransactions.length})
+        </button>
+      {/if}
       <button class="btn btn-reapply" on:click={reapplyRules} disabled={reapplyingRules || loading || transactions.length === 0}>
         {reapplyingRules ? '🔄 Re-applying...' : '🔁 Re-apply Rules'}
       </button>
@@ -474,19 +852,34 @@ AI categorization will NOT be called.`;
   {#if showColumnSelector}
     <div class="column-selector">
       <div class="column-selector-header">
-        <h3>Show/Hide Columns</h3>
-        <button class="btn-reset" on:click={resetColumns}>Reset to Default</button>
+        <h3>Show/Hide & Reorder Columns</h3>
+        <div class="column-actions">
+          <button class="btn-reset" on:click={selectAllColumns}>Select All</button>
+          <button class="btn-reset" on:click={deselectAllColumns}>Deselect All</button>
+          <button class="btn-reset" on:click={resetColumns}>Reset</button>
+        </div>
       </div>
       <div class="column-list">
-        {#each allColumns as column}
-          <label class="column-item">
-            <input
-              type="checkbox"
-              bind:checked={visibleColumns[column.key]}
-              on:change={() => saveColumnPreferences()}
-            />
-            <span>{column.label}</span>
-          </label>
+        {#each columnOrder as colKey, index (colKey)}
+          {@const column = allColumns.find(c => c.key === colKey)}
+          <div
+            class="column-item"
+            draggable="true"
+            on:dragstart={(e) => handleDragStart(e, index)}
+            on:drop={(e) => handleDrop(e, index)}
+            on:dragover={(e) => e.preventDefault()}
+            on:dragenter={(e) => e.preventDefault()}
+          >
+            <span class="drag-handle" title="Drag to reorder">☰</span>
+            <label>
+              <input
+                type="checkbox"
+                bind:checked={visibleColumns[column.key]}
+                on:change={() => saveColumnPreferences()}
+              />
+              <span>{column.label}</span>
+            </label>
+          </div>
         {/each}
       </div>
     </div>
@@ -532,11 +925,11 @@ AI categorization will NOT be called.`;
       </div>
 
       <div class="filter-group">
-        <label>Owner:</label>
-        <select bind:value={selectedOwner} on:change={handleFilterChange} class="filter-select">
-          <option value="">All Owners</option>
-          {#each owners as owner}
-            <option value={owner}>{owner}</option>
+        <label>Institution:</label>
+        <select bind:value={selectedInstitution} on:change={handleFilterChange} class="filter-select">
+          <option value="">All Institutions</option>
+          {#each institutions as institution}
+            <option value={institution}>{institution}</option>
           {/each}
         </select>
       </div>
@@ -623,11 +1016,23 @@ AI categorization will NOT be called.`;
           </div>
 
           <div class="filter-group">
-            <label>Institution:</label>
-            <select bind:value={selectedInstitution} on:change={handleFilterChange} class="filter-select">
-              <option value="">All Institutions</option>
-              {#each institutions as institution}
-                <option value={institution}>{institution}</option>
+            <label>Type:</label>
+            <select bind:value={selectedType} on:change={handleFilterChange} class="filter-select">
+              <option value="">All Types</option>
+              {#each transactionTypes as type}
+                <option value={type}>{type}</option>
+              {/each}
+            </select>
+          </div>
+
+          <div class="filter-group">
+            <label>Account:</label>
+            <select bind:value={selectedAccount} on:change={handleFilterChange} class="filter-select">
+              <option value="">All Accounts</option>
+              {#each accountNumbers as accountNum}
+                <option value={accountNum}>
+                  {accountNum} {accounts[accountNum] ? `(${accounts[accountNum].description})` : ''}
+                </option>
               {/each}
             </select>
           </div>
@@ -666,7 +1071,18 @@ AI categorization will NOT be called.`;
         <table>
           <thead>
             <tr>
-              {#each allColumns as column}
+              {#if selectMode}
+                <th class="checkbox-cell">
+                  <input
+                    type="checkbox"
+                    checked={selectedTransactions.length === transactions.length && transactions.length > 0}
+                    on:change={toggleSelectAll}
+                    title="Select all filtered transactions"
+                  />
+                </th>
+              {/if}
+              {#each columnOrder as colKey}
+                {@const column = allColumns.find(c => c.key === colKey)}
                 {#if visibleColumns[column.key]}
                   <th
                     class:sortable={column.sortable}
@@ -684,11 +1100,87 @@ AI categorization will NOT be called.`;
           <tbody>
             {#each transactions as txn}
               <tr>
-                {#each allColumns as column}
+                {#if selectMode}
+                  <td class="checkbox-cell">
+                    <input
+                      type="checkbox"
+                      checked={selectedTransactions.includes(txn.id)}
+                      on:change={() => toggleTransactionSelection(txn.id)}
+                    />
+                  </td>
+                {/if}
+                {#each columnOrder as colKey}
+                  {@const column = allColumns.find(c => c.key === colKey)}
                   {#if visibleColumns[column.key]}
-                    <td class={getCellClass(txn, column.key)}>
-                      {getCellValue(txn, column.key)}
-                    </td>
+                    {#if column.key === 'actions'}
+                      <td class="actions-cell">
+                        <button class="btn-icon" on:click={() => openEditModal(txn)} title="Edit">
+                          ✏️
+                        </button>
+                        <button class="btn-icon btn-danger" on:click={() => deleteTransaction(txn)} title="Delete">
+                          🗑️
+                        </button>
+                      </td>
+                    {:else if column.key === 'category_tier1' || column.key === 'category_tier2' || column.key === 'category_tier3'}
+                      <td
+                        class={getCellClass(txn, column.key)}
+                        on:dblclick={() => startInlineEdit(txn.id, column.key, txn)}
+                      >
+                        {#if inlineEditingCell?.txnId === txn.id && inlineEditingCell?.field === column.key}
+                          <!-- Inline select dropdown -->
+                          {#if column.key === 'category_tier1'}
+                            <select
+                              bind:value={inlineTempValue.tier1}
+                              on:change={() => { inlineTempValue.tier2 = ''; inlineTempValue.tier3 = ''; }}
+                              on:blur={() => saveInlineEdit(txn.id)}
+                              on:keydown={(e) => handleInlineKeydown(e, txn.id)}
+                              autofocus
+                              class="inline-select"
+                            >
+                              <option value="">Select...</option>
+                              {#each categoryTree as cat}
+                                <option value={cat.tier1}>{cat.tier1}</option>
+                              {/each}
+                            </select>
+                          {:else if column.key === 'category_tier2'}
+                            <select
+                              bind:value={inlineTempValue.tier2}
+                              on:change={() => { inlineTempValue.tier3 = ''; }}
+                              on:blur={() => saveInlineEdit(txn.id)}
+                              on:keydown={(e) => handleInlineKeydown(e, txn.id)}
+                              autofocus
+                              class="inline-select"
+                            >
+                              <option value="">Select...</option>
+                              {#each getTier2Options(inlineTempValue.tier1) as cat}
+                                <option value={cat.tier2}>{cat.tier2}</option>
+                              {/each}
+                            </select>
+                          {:else if column.key === 'category_tier3'}
+                            <select
+                              bind:value={inlineTempValue.tier3}
+                              on:blur={() => saveInlineEdit(txn.id)}
+                              on:keydown={(e) => handleInlineKeydown(e, txn.id)}
+                              autofocus
+                              class="inline-select"
+                            >
+                              <option value="">Select...</option>
+                              {#each getTier3Options(inlineTempValue.tier1, inlineTempValue.tier2) as tier3}
+                                <option value={tier3}>{tier3}</option>
+                              {/each}
+                            </select>
+                          {/if}
+                        {:else}
+                          <span class="editable-cell" title="Double-click to edit">
+                            {getCellValue(txn, column.key)}
+                          </span>
+                        {/if}
+                      </td>
+                    {:else}
+                      <td class={getCellClass(txn, column.key)}>
+                        {getCellValue(txn, column.key)}
+                      </td>
+                    {/if}
                   {/if}
                 {/each}
               </tr>
@@ -748,6 +1240,137 @@ AI categorization will NOT be called.`;
         </div>
       </div>
     {/if}
+  {/if}
+
+  <!-- Edit Transaction Modal -->
+  {#if showEditModal}
+    <div class="modal-backdrop" on:click={closeEditModal}>
+      <div class="modal" on:click|stopPropagation>
+        <div class="modal-header">
+          <h2>Edit Transaction</h2>
+          <button class="btn-close" on:click={closeEditModal}>✕</button>
+        </div>
+        <div class="modal-body modal-scrollable">
+          <!-- Core Fields Section -->
+          <fieldset>
+            <legend>Core Information</legend>
+            <div class="form-group">
+              <label>Description</label>
+              <input type="text" bind:value={editForm.description} placeholder="Transaction description" class="input-full-width" />
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Amount</label>
+                <input type="number" step="0.01" bind:value={editForm.amount} />
+              </div>
+              <div class="form-group">
+                <label>Currency</label>
+                <select bind:value={editForm.currency}>
+                  <option value="CZK">CZK</option>
+                  <option value="EUR">EUR</option>
+                  <option value="USD">USD</option>
+                </select>
+              </div>
+            </div>
+          </fieldset>
+
+          <!-- Categories Section -->
+          <fieldset>
+            <legend>Categories</legend>
+            <div class="form-group">
+              <label>Category (Tier1)</label>
+              <select bind:value={editForm.category_tier1}>
+                <option value="">Select Tier1</option>
+                {#each categoryTree as cat}
+                  <option value={cat.tier1}>{cat.tier1}</option>
+                {/each}
+              </select>
+            </div>
+
+            {#if editForm.category_tier1}
+              <div class="form-group">
+                <label>Category (Tier2)</label>
+                <select bind:value={editForm.category_tier2}>
+                  <option value="">Select Tier2</option>
+                  {#each categoryTree.find(c => c.tier1 === editForm.category_tier1)?.tier2_categories || [] as tier2}
+                    <option value={tier2.tier2}>{tier2.tier2}</option>
+                  {/each}
+                </select>
+              </div>
+            {/if}
+
+            {#if editForm.category_tier2}
+              <div class="form-group">
+                <label>Category (Tier3)</label>
+                <select bind:value={editForm.category_tier3}>
+                  <option value="">Select Tier3</option>
+                  {#each categoryTree.find(c => c.tier1 === editForm.category_tier1)?.tier2_categories?.find(t2 => t2.tier2 === editForm.category_tier2)?.tier3 || [] as tier3}
+                    <option value={tier3}>{tier3}</option>
+                  {/each}
+                </select>
+              </div>
+            {/if}
+          </fieldset>
+
+          <!-- Counterparty Section -->
+          <fieldset>
+            <legend>Counterparty Information</legend>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Counterparty Name</label>
+                <input type="text" bind:value={editForm.counterparty_name} placeholder="Name" />
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Counterparty Account</label>
+                <input type="text" bind:value={editForm.counterparty_account} placeholder="Account number" />
+              </div>
+              <div class="form-group">
+                <label>Counterparty Bank</label>
+                <input type="text" bind:value={editForm.counterparty_bank} placeholder="Bank" />
+              </div>
+            </div>
+          </fieldset>
+
+          <!-- Czech Banking Symbols -->
+          <fieldset>
+            <legend>Czech Banking Symbols</legend>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Variable Symbol</label>
+                <input type="text" bind:value={editForm.variable_symbol} placeholder="VS" />
+              </div>
+              <div class="form-group">
+                <label>Constant Symbol</label>
+                <input type="text" bind:value={editForm.constant_symbol} placeholder="CS" />
+              </div>
+              <div class="form-group">
+                <label>Specific Symbol</label>
+                <input type="text" bind:value={editForm.specific_symbol} placeholder="SS" />
+              </div>
+            </div>
+          </fieldset>
+
+          <!-- Additional Fields -->
+          <fieldset>
+            <legend>Additional Information</legend>
+            <div class="form-group">
+              <label>Transaction Type</label>
+              <input type="text" bind:value={editForm.transaction_type} placeholder="Type" />
+            </div>
+            <div class="form-group">
+              <label>Note</label>
+              <textarea bind:value={editForm.note} placeholder="Add a note..." rows="3"></textarea>
+            </div>
+          </fieldset>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" on:click={closeEditModal}>Cancel</button>
+          <button class="btn btn-primary" on:click={saveTransaction}>Save Changes</button>
+        </div>
+      </div>
+    </div>
   {/if}
 </div>
 
@@ -816,23 +1439,44 @@ AI categorization will NOT be called.`;
   }
 
   .column-list {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
   }
 
   .column-item {
     display: flex;
     align-items: center;
     gap: 8px;
-    cursor: pointer;
-    padding: 6px;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
     border-radius: 4px;
+    background: white;
+    cursor: move;
     transition: background-color 0.2s;
   }
 
   .column-item:hover {
-    background: #f8f9fa;
+    background-color: #f5f5f5;
+  }
+
+  .drag-handle {
+    color: #999;
+    font-weight: bold;
+    cursor: grab;
+    user-select: none;
+  }
+
+  .drag-handle:active {
+    cursor: grabbing;
+  }
+
+  .column-item label {
+    flex: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 
   .column-item input[type="checkbox"] {
@@ -1224,6 +1868,94 @@ AI categorization will NOT be called.`;
     background: rgba(0, 0, 0, 0.1);
   }
 
+  .actions-cell {
+    white-space: nowrap;
+  }
+
+  .checkbox-cell {
+    width: 40px;
+    text-align: center;
+    padding: 8px;
+  }
+
+  .checkbox-cell input[type="checkbox"] {
+    cursor: pointer;
+    width: 18px;
+    height: 18px;
+  }
+
+  .btn-select {
+    background: #17a2b8;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: background-color 0.2s;
+  }
+
+  .btn-select:hover {
+    background: #138496;
+  }
+
+  .btn-select-all {
+    background: #20c997;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    font-weight: 600;
+  }
+
+  .btn-select-all:hover:not(:disabled) {
+    background: #1ab386;
+  }
+
+  .btn-select-all:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+    color: #666;
+  }
+
+  .btn-danger {
+    background: #dc3545;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    font-weight: 500;
+  }
+
+  .btn-danger:hover {
+    background: #c82333;
+  }
+
+  .btn-icon {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 1.2rem;
+    padding: 4px 8px;
+    margin: 0 2px;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+  }
+
+  .btn-icon:hover {
+    background-color: #f0f0f0;
+  }
+
+  .btn-icon.btn-danger:hover {
+    background-color: #ffebee;
+  }
+
   .no-results {
     text-align: center;
     padding: 60px 20px;
@@ -1236,6 +1968,177 @@ AI categorization will NOT be called.`;
     font-size: 1.1rem;
     color: #666;
     margin-bottom: 20px;
+  }
+
+  /* Enhanced Edit Modal Styles */
+  .modal-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+
+  .modal {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    width: 90%;
+    max-width: 800px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem;
+    border-bottom: 1px solid #e0e0e0;
+    background: linear-gradient(to bottom, #f8f9fa, #ffffff);
+  }
+
+  .modal-header h2 {
+    margin: 0;
+    font-size: 1.5rem;
+    color: #333;
+    font-weight: 600;
+  }
+
+  .btn-close {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    color: #999;
+    line-height: 1;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: all 0.2s;
+  }
+
+  .btn-close:hover {
+    background-color: #f0f0f0;
+    color: #333;
+  }
+
+  .modal-body {
+    padding: 1.5rem;
+    overflow-y: auto;
+  }
+
+  .modal-scrollable {
+    max-height: calc(90vh - 180px);
+    overflow-y: auto;
+  }
+
+  .modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+    padding: 1.5rem;
+    border-top: 1px solid #e0e0e0;
+    background-color: #f8f9fa;
+  }
+
+  fieldset {
+    border: 1px solid #e0e0e0;
+    padding: 20px;
+    margin-bottom: 20px;
+    border-radius: 6px;
+    background-color: #fafafa;
+  }
+
+  fieldset legend {
+    font-weight: 600;
+    padding: 0 12px;
+    color: #444;
+    font-size: 1rem;
+    background-color: white;
+    border-radius: 4px;
+    border: 1px solid #e0e0e0;
+  }
+
+  .form-group {
+    margin-bottom: 1rem;
+  }
+
+  .form-group label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+    color: #555;
+    font-size: 0.9rem;
+  }
+
+  .form-group input,
+  .form-group select,
+  .form-group textarea {
+    width: 100%;
+    padding: 0.6rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 0.95rem;
+    transition: border-color 0.2s;
+    background-color: white;
+  }
+
+  .form-group input:focus,
+  .form-group select:focus,
+  .form-group textarea:focus {
+    outline: none;
+    border-color: #4CAF50;
+    box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.1);
+  }
+
+  .input-full-width {
+    width: 100%;
+  }
+
+  .form-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+  }
+
+  /* Inline Category Editing Styles */
+  .editable-cell {
+    cursor: pointer;
+    border-bottom: 1px dashed #ccc;
+    display: block;
+    width: 100%;
+    padding: 2px 4px;
+  }
+
+  .editable-cell:hover {
+    background-color: #f0f0f0;
+    border-bottom-color: #4CAF50;
+  }
+
+  .inline-select {
+    width: 100%;
+    padding: 4px;
+    border: 2px solid #4CAF50;
+    border-radius: 4px;
+    font-size: 14px;
+    background: white;
+  }
+
+  .inline-select:focus {
+    outline: none;
+    border-color: #45a049;
+    box-shadow: 0 0 5px rgba(76, 175, 80, 0.3);
   }
 
   /* Responsive */
@@ -1258,6 +2161,10 @@ AI categorization will NOT be called.`;
 
     .pagination-controls {
       flex-direction: column;
+    }
+
+    .form-row {
+      grid-template-columns: 1fr;
     }
   }
 </style>

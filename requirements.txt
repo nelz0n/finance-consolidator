@@ -1,7 +1,4 @@
-# Existing dependencies
-google-api-python-client>=2.108.0
-google-auth-httplib2>=0.2.0
-google-auth-oauthlib>=1.2.0
+# Core dependencies
 pandas>=2.2.0  # Updated for Python 3.13 compatibility
 openpyxl>=3.1.2
 pyyaml>=6.0.1

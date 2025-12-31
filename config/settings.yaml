@@ -1,31 +1,5 @@
 # General Settings for Finance Consolidator
 
-# Google Drive Configuration
-google_drive:
-  # Folder ID where input CSV/XLSX files are stored
-  # To find: Open folder in Google Drive, look at URL
-  # https://drive.google.com/drive/folders/YOUR_FOLDER_ID
-  input_folder_id: "1CrtDt9JR9pNrE4I9HKxjnVxrb9Eh9E5b"
-  
-  # Credentials file location (relative to project root)
-  credentials_path: "data/credentials/google_credentials.json"
-  
-  # Token storage (will be created after first auth)
-  token_path: "data/credentials/token.pickle"
-
-# Google Sheets Configuration
-google_sheets:
-  # Master spreadsheet ID
-  # To find: Open sheet in Google Sheets, look at URL
-  # https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit
-  master_sheet_id: "10H6uDqvYs2iBpwBDxH-zEfSrSMAq6J5JbjKVR5NkG_w"
-  
-  # Tab names in the master sheet
-  transactions_tab: "Transactions"
-
-  # Create tabs if they don't exist
-  auto_create_tabs: true
-
 # Currency Configuration
 currency:
   # Base currency for normalization
@@ -54,25 +28,10 @@ currency:
     cache_dir: "data/cache"  # Directory to cache CNB rates
     # CNB updates daily around 2:30 PM CET
 
-# Categorization Configuration
+# Categorization Configuration (all data now in SQLite database)
 categorization:
-  # Rules source: "database", "google_sheets", or "yaml"
-  rules_source: "database"
-
-  # Google Sheets configuration
-  google_sheets:
-    # Spreadsheet ID (defaults to master_sheet_id if not specified)
-    spreadsheet_id: "10H6uDqvYs2iBpwBDxH-zEfSrSMAq6J5JbjKVR5NkG_w"
-
-    # Tab names
-    rules_tab: "Categorization_Rules"
-    owner_mapping_tab: "Owner_Mapping"
-    categories_tab: "Categories"
-
-  # Caching configuration
-  cache_enabled: false  # Disabled - always fetch fresh rules from Google Sheets
-  cache_file: "data/cache/sheets_rules.yaml"
-  cache_ttl_hours: 24  # Re-fetch from Sheets after 24 hours
+  # Reserved for future configuration options
+  enabled: true
 
 # Processing Configuration
 processing:

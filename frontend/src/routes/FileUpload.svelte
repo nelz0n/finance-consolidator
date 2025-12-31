@@ -12,6 +12,11 @@
   let error = null;
   let success = null;
 
+  // Log viewer
+  let showLogModal = false;
+  let currentJobLog = null;
+  let viewingJobId = null;
+
   // Auto-refresh jobs every 2 seconds
   let refreshInterval;
 
@@ -105,6 +110,35 @@
     } catch (err) {
       error = `Failed to delete job: ${err.message}`;
     }
+  }
+
+  async function viewJobLog(jobId) {
+    try {
+      const response = await api.get(`/files/jobs/${jobId}/log`);
+      currentJobLog = response.data;
+      viewingJobId = jobId;
+      showLogModal = true;
+    } catch (err) {
+      error = `Failed to load job log: ${err.message}`;
+    }
+  }
+
+  function downloadJobLog() {
+    if (!currentJobLog) return;
+
+    const blob = new Blob([currentJobLog.log_text], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `job_${viewingJobId}_log.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function closeLogModal() {
+    showLogModal = false;
+    currentJobLog = null;
+    viewingJobId = null;
   }
 
   function getStatusColor(status) {
@@ -237,8 +271,9 @@
                 <td>{formatDate(job.created_at)}</td>
                 <td>
                   {#if job.status === 'completed'}
-                    <div class="progress-text">
-                      ✓ {job.inserted_rows} inserted, {job.updated_rows} updated
+                    <div class="progress-details">
+                      <div>📊 Parsed: {job.parsed_rows} | Normalized: {job.normalized_rows}</div>
+                      <div>✓ Inserted: {job.inserted_rows} | Updated: {job.updated_rows}</div>
                     </div>
                   {:else if job.status === 'failed'}
                     <div class="error-text">{job.error || 'Processing failed'}</div>
@@ -251,6 +286,13 @@
                   {/if}
                 </td>
                 <td>
+                  <button
+                    class="btn btn-small btn-secondary"
+                    on:click={() => viewJobLog(job.id)}
+                    title="View detailed processing log"
+                  >
+                    📋 Log
+                  </button>
                   <button
                     class="btn btn-small btn-danger"
                     on:click={() => deleteJob(job.id)}
@@ -266,6 +308,32 @@
       </div>
     {/if}
   </div>
+
+  <!-- Job Log Modal -->
+  {#if showLogModal && currentJobLog}
+    <div class="modal-backdrop" on:click={closeLogModal}>
+      <div class="modal log-modal" on:click|stopPropagation>
+        <div class="modal-header">
+          <h2>Processing Log: {currentJobLog.filename}</h2>
+          <button class="btn-close" on:click={closeLogModal}>✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="log-status">
+            Status: <span class="status-badge" style="background-color: {getStatusColor(currentJobLog.status)}">
+              {getStatusIcon(currentJobLog.status)} {currentJobLog.status}
+            </span>
+          </div>
+          <pre class="log-content">{currentJobLog.log_text || 'No log entries yet...'}</pre>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" on:click={downloadJobLog}>
+            💾 Download Log
+          </button>
+          <button class="btn btn-primary" on:click={closeLogModal}>Close</button>
+        </div>
+      </div>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -444,5 +512,109 @@
   .error-text {
     font-size: 0.875rem;
     color: #dc3545;
+  }
+
+  .progress-details {
+    font-size: 0.875rem;
+    line-height: 1.6;
+  }
+
+  .progress-details div {
+    margin: 2px 0;
+  }
+
+  /* Modal styles */
+  .modal-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+
+  .modal {
+    background: white;
+    border-radius: 8px;
+    width: 90%;
+    max-width: 800px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  }
+
+  .log-modal {
+    max-width: 1000px;
+  }
+
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem;
+    border-bottom: 1px solid #dee2e6;
+  }
+
+  .modal-header h2 {
+    margin: 0;
+    font-size: 1.25rem;
+  }
+
+  .btn-close {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    padding: 0;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+  }
+
+  .btn-close:hover {
+    background: rgba(0, 0, 0, 0.1);
+  }
+
+  .modal-body {
+    padding: 1.5rem;
+    overflow-y: auto;
+    flex: 1;
+  }
+
+  .log-status {
+    margin-bottom: 1rem;
+    font-size: 1rem;
+  }
+
+  .log-content {
+    background: #f8f9fa;
+    padding: 1rem;
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    max-height: 500px;
+    overflow-y: auto;
+    border: 1px solid #dee2e6;
+  }
+
+  .modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    padding: 1.5rem;
+    border-top: 1px solid #dee2e6;
   }
 </style>

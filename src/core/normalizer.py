@@ -30,7 +30,36 @@ class DataNormalizer:
         self.config = institution_config
         self.institution_name = institution_config.get('institution', {}).get('name', 'Unknown')
 
+        # Load central accounts mapping
+        self.accounts_config = self._load_accounts_config()
+
         logger.debug(f"Initialized normalizer for {self.institution_name}")
+
+    def _load_accounts_config(self) -> Dict[str, Any]:
+        """Load central accounts configuration"""
+        import yaml
+        from pathlib import Path
+
+        accounts_path = Path("config/accounts.yaml")
+        if not accounts_path.exists():
+            logger.warning("accounts.yaml not found, account descriptions will not be available")
+            return {}
+
+        try:
+            with open(accounts_path, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
+                return config.get('accounts', {})
+        except Exception as e:
+            logger.error(f"Failed to load accounts.yaml: {e}")
+            return {}
+
+    def _get_account_description(self, account_number: str) -> Optional[str]:
+        """Get account description from central config"""
+        if not account_number or not self.accounts_config:
+            return None
+
+        account_info = self.accounts_config.get(account_number, {})
+        return account_info.get('description')
 
     def normalize_transactions(
         self,
@@ -120,7 +149,15 @@ class DataNormalizer:
 
         # Convert to CZK (base currency)
         try:
-            amount_czk = self.converter.convert(amount, currency, 'CZK')
+            # Pass transaction date for accurate historical exchange rates
+            transaction_date = date.date() if hasattr(date, 'date') else date
+            amount_czk = self.converter.convert(
+                amount,
+                currency,
+                'CZK',
+                transaction_date=transaction_date
+            )
+            logger.debug(f"Converted {amount} {currency} to {amount_czk} CZK on {transaction_date}")
         except Exception as e:
             logger.warning(f"Currency conversion failed: {e}")
             amount_czk = amount  # Fallback to original
@@ -138,8 +175,8 @@ class DataNormalizer:
         # Get account (cleaned)
         account = self._clean_string_field(raw_data.get('account', ''))
 
-        # Determine owner
-        owner = self._determine_owner(raw_data, account)
+        # Owner is managed via database only (Settings UI), not determined here
+        owner = None
 
         # Map category
         category = self._apply_category_mapping(raw_data)

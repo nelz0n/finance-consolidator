@@ -4,16 +4,10 @@
 # ============================================================================
 # INTERNAL TRANSFER DETECTION
 # ============================================================================
+# NOTE: Own accounts are automatically loaded from config/accounts.yaml
+#       Any account defined in accounts.yaml is considered your own account
+#       for internal transfer detection purposes.
 internal_transfers:
-  # List all your own account numbers
-  own_accounts:
-    - "283337817/0300"  # ČSOB Credit Card - Spolocne
-    - "210621040/0300"  # ČSOB Main - Brano
-    - "243160770/0300"  # ČSOB - Mirka
-    - "3581422554/6363" # Partners Bank
-    - "1330299329/6363" # Partners Bank
-    - "2106210400/6363" # Partners Bank
-
   # Exclusions: Do NOT mark as internal transfer if any of these conditions match
   exclusions:
     # Exclude specific counterparty names (e.g., platform rewards, bank-generated transactions)

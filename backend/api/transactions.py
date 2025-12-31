@@ -14,7 +14,7 @@ router = APIRouter()
 @router.get("/transactions")
 async def get_transactions(
     skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=100000),
     from_date: Optional[date] = None,
     to_date: Optional[date] = None,
     owner: Optional[str] = None,
@@ -201,6 +201,9 @@ async def reapply_rules(
                 'description': txn_obj.description,
                 'amount': float(txn_obj.amount) if txn_obj.amount else 0,
                 'currency': txn_obj.currency,
+                'amount_czk': float(txn_obj.amount_czk) if txn_obj.amount_czk else 0,
+                'institution': txn_obj.institution.name if txn_obj.institution else None,
+                'type': txn_obj.transaction_type,
                 'counterparty_account': txn_obj.counterparty_account,
                 'counterparty_name': txn_obj.counterparty_name,
                 'counterparty_bank': txn_obj.counterparty_bank,
@@ -371,9 +374,16 @@ async def update_transaction(
 
 
 @router.delete("/transactions/{transaction_id}")
-async def delete_transaction(transaction_id: int):
-    """Delete a transaction from Google Sheets (not implemented - would require sheet manipulation)"""
-    raise HTTPException(
-        status_code=501,
-        detail="Delete not supported with Google Sheets backend. Please use Google Sheets UI to delete rows."
-    )
+async def delete_transaction(transaction_id: int, db: Session = Depends(get_db)):
+    """Delete a transaction from SQLite database"""
+    # Fixed to work with SQLite
+    try:
+        repo = TransactionRepository(db)
+        success = repo.delete(transaction_id)
+
+        if not success:
+            raise HTTPException(status_code=404, detail="Transaction not found")
+
+        return {"status": "deleted", "transaction_id": transaction_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

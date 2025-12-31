@@ -1,23 +1,10 @@
 <script>
   import { onMount } from 'svelte';
-  import { exportApi } from '../lib/api.js';
 
   let loading = true;
   let error = null;
   let saveSuccess = false;
-  let activeTab = 'app'; // 'app', 'currency', 'institutions', 'owners', 'export'
-
-  // Export settings
-  let exportInProgress = false;
-  let exportJobId = null;
-  let exportStatus = null;
-  let exportJobs = [];
-  let exportFilters = {
-    owner: '',
-    institution: '',
-    from_date: '',
-    to_date: ''
-  };
+  let activeTab = 'app'; // 'app', 'currency', 'institutions', 'accounts'
 
   // Transaction field reference - what fields can be mapped
   const TRANSACTION_FIELDS = [
@@ -90,9 +77,23 @@
   let showAddAccountForm = false;
   let newAccount = { account: '', institution_id: '' };
 
+  // Accounts management
+  let accounts = {}; // { "account_number": { description: "..." } }
+  let editingAccount = null;
+  let showAddAccountModal = false;
+  let accountForm = { account_number: '', description: '' };
+
   onMount(async () => {
     await loadSettings();
+    if (activeTab === 'accounts') {
+      await loadAccounts();
+    }
   });
+
+  // Load accounts when switching to accounts tab
+  $: if (activeTab === 'accounts' && Object.keys(accounts).length === 0) {
+    loadAccounts();
+  }
 
   async function loadSettings() {
     try {
@@ -142,6 +143,83 @@
 
       saveSuccess = true;
       setTimeout(() => saveSuccess = false, 3000);
+    } catch (err) {
+      error = err.message;
+    }
+  }
+
+  // Accounts functions
+  async function loadAccounts() {
+    try {
+      const response = await fetch('/api/v1/accounts');
+      if (!response.ok) throw new Error('Failed to load accounts');
+      const data = await response.json();
+      accounts = data.accounts || {};
+    } catch (err) {
+      error = err.message;
+    }
+  }
+
+  async function saveAccounts() {
+    try {
+      const response = await fetch('/api/v1/accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accounts })
+      });
+
+      if (!response.ok) throw new Error('Failed to save accounts');
+
+      saveSuccess = true;
+      setTimeout(() => saveSuccess = false, 3000);
+      await loadAccounts();
+    } catch (err) {
+      error = err.message;
+    }
+  }
+
+  function openAddAccountModal() {
+    accountForm = { account_number: '', description: '' };
+    editingAccount = null;
+    showAddAccountModal = true;
+  }
+
+  function openEditAccountModal(accountNumber) {
+    accountForm = {
+      account_number: accountNumber,
+      description: accounts[accountNumber]?.description || ''
+    };
+    editingAccount = accountNumber;
+    showAddAccountModal = true;
+  }
+
+  function closeAccountModal() {
+    showAddAccountModal = false;
+    accountForm = { account_number: '', description: '' };
+    editingAccount = null;
+  }
+
+  async function saveAccount() {
+    if (!accountForm.account_number || !accountForm.description) {
+      error = 'Account number and description are required';
+      return;
+    }
+
+    try {
+      accounts[accountForm.account_number] = { description: accountForm.description };
+      await saveAccounts();
+      closeAccountModal();
+    } catch (err) {
+      error = err.message;
+    }
+  }
+
+  async function deleteAccount(accountNumber) {
+    if (!confirm(`Delete account "${accountNumber}"?`)) return;
+
+    try {
+      delete accounts[accountNumber];
+      await saveAccounts();
     } catch (err) {
       error = err.message;
     }
@@ -619,66 +697,6 @@
     }
   }
 
-  // Export functions
-  async function startExport() {
-    try {
-      error = null;
-      exportInProgress = true;
-
-      // Build params object, only include non-empty values
-      const params = {};
-      if (exportFilters.owner) params.owner = exportFilters.owner;
-      if (exportFilters.institution) params.institution = exportFilters.institution;
-      if (exportFilters.from_date) params.from_date = exportFilters.from_date;
-      if (exportFilters.to_date) params.to_date = exportFilters.to_date;
-
-      const response = await exportApi.exportToSheets(params);
-      exportJobId = response.data.job_id;
-
-      // Start polling for status
-      pollExportStatus();
-    } catch (err) {
-      error = err.response?.data?.detail || err.message;
-      exportInProgress = false;
-    }
-  }
-
-  async function pollExportStatus() {
-    if (!exportJobId) return;
-
-    try {
-      const response = await exportApi.getJobStatus(exportJobId);
-      exportStatus = response.data;
-
-      if (exportStatus.status === 'completed' || exportStatus.status === 'failed') {
-        exportInProgress = false;
-        await loadExportJobs(); // Refresh job list
-      } else if (exportStatus.status === 'processing' || exportStatus.status === 'pending') {
-        // Continue polling
-        setTimeout(pollExportStatus, 2000); // Poll every 2 seconds
-      }
-    } catch (err) {
-      error = err.response?.data?.detail || err.message;
-      exportInProgress = false;
-    }
-  }
-
-  async function loadExportJobs() {
-    try {
-      const response = await exportApi.getJobs(10);
-      exportJobs = response.data;
-    } catch (err) {
-      console.error('Failed to load export jobs:', err);
-    }
-  }
-
-  // Load export jobs when switching to export tab
-  async function handleTabChange(tab) {
-    activeTab = tab;
-    if (tab === 'export') {
-      await loadExportJobs();
-    }
-  }
 </script>
 
 <div class="settings">
@@ -694,37 +712,30 @@
       <button
         class="tab"
         class:active={activeTab === 'app'}
-        on:click={() => handleTabChange('app')}
+        on:click={() => activeTab = 'app'}
       >
         Application
       </button>
       <button
         class="tab"
         class:active={activeTab === 'currency'}
-        on:click={() => handleTabChange('currency')}
+        on:click={() => activeTab = 'currency'}
       >
         Currency
       </button>
       <button
         class="tab"
         class:active={activeTab === 'institutions'}
-        on:click={() => handleTabChange('institutions')}
+        on:click={() => activeTab = 'institutions'}
       >
         Institutions
       </button>
       <button
         class="tab"
-        class:active={activeTab === 'owners'}
-        on:click={() => handleTabChange('owners')}
+        class:active={activeTab === 'accounts'}
+        on:click={() => activeTab = 'accounts'}
       >
-        Owners
-      </button>
-      <button
-        class="tab"
-        class:active={activeTab === 'export'}
-        on:click={() => handleTabChange('export')}
-      >
-        Export
+        Accounts
       </button>
     </div>
 
@@ -734,28 +745,7 @@
         <div class="settings-section">
           <h2>Application Settings</h2>
 
-          <h3>Google Sheets Export Configuration</h3>
-          <p class="hint">Configure where to export transactions from SQLite database</p>
-
-          <div class="form-group">
-            <label>Google Sheets Master Sheet ID *</label>
-            <input
-              type="text"
-              bind:value={appSettings.google_sheets.master_sheet_id}
-              placeholder="e.g., 10H6uDqvYs2iBpwBDxH-zEfSrSMAq6J5JbjKVR5NkG_w"
-            />
-            <p class="hint">Find this in your Google Sheets URL (required for export functionality)</p>
-          </div>
-
-          <div class="form-group">
-            <label>Transactions Tab Name *</label>
-            <input
-              type="text"
-              bind:value={appSettings.google_sheets.transactions_tab}
-              placeholder="e.g., Transactions"
-            />
-            <p class="hint">Name of the sheet tab where transactions will be exported</p>
-          </div>
+          <h3>General Configuration</h3>
 
           <div class="form-group">
             <label>Timezone</label>
@@ -1188,58 +1178,88 @@
               {:else if selectedInstitution}
                 <div class="institution-header">
                   <h3>{selectedInstitution.name}</h3>
-                  <button class="btn btn-secondary" on:click={openEditInstitutionForm}>
-                    ✏️ Edit Institution
-                  </button>
+                  <div class="institution-actions">
+                    <button class="btn btn-secondary" on:click={openEditInstitutionForm}>
+                      ✏️ Edit
+                    </button>
+                    <button class="btn btn-danger" on:click={() => deleteInstitution(selectedInstitution.id)}>
+                      Delete
+                    </button>
+                  </div>
                 </div>
 
-                <h4>Owner Mappings</h4>
-                <p class="hint">Map account numbers to owners for this institution</p>
-
-                <div class="owner-mappings">
-                  {#each ownerMappings as mapping, index}
-                    <div class="mapping-row">
-                      <input
-                        type="text"
-                        bind:value={mapping.account}
-                        placeholder="Account number"
-                        class="account-input"
-                      />
-                      <span>→</span>
-                      <input
-                        type="text"
-                        bind:value={mapping.owner}
-                        placeholder="Owner name"
-                        class="owner-input"
-                      />
-                      <button
-                        class="btn-icon"
-                        on:click={() => removeOwnerMapping(index)}
-                        title="Remove mapping"
-                      >
-                        ✕
-                      </button>
+                <div class="institution-details-view">
+                  <div class="detail-group">
+                    <h4>Basic Information</h4>
+                    <div class="detail-row">
+                      <span class="detail-label">Name:</span>
+                      <span class="detail-value">{selectedInstitution.name}</span>
                     </div>
-                  {/each}
+                    <div class="detail-row">
+                      <span class="detail-label">Type:</span>
+                      <span class="detail-value">{selectedInstitution.type}</span>
+                    </div>
+                    <div class="detail-row">
+                      <span class="detail-label">Country:</span>
+                      <span class="detail-value">{selectedInstitution.country}</span>
+                    </div>
+                    <div class="detail-row">
+                      <span class="detail-label">Filename Patterns:</span>
+                      <span class="detail-value">{selectedInstitution.filename_patterns?.join(', ') || 'None'}</span>
+                    </div>
+                  </div>
 
-                  <button class="btn btn-small" on:click={addOwnerMapping}>
-                    + Add Mapping
-                  </button>
-                </div>
+                  <div class="detail-group">
+                    <h4>File Format</h4>
+                    <div class="detail-row">
+                      <span class="detail-label">Encoding:</span>
+                      <span class="detail-value">{selectedInstitution.encoding}</span>
+                    </div>
+                    <div class="detail-row">
+                      <span class="detail-label">Delimiter:</span>
+                      <span class="detail-value">{selectedInstitution.delimiter === ';' ? 'Semicolon (;)' : selectedInstitution.delimiter === ',' ? 'Comma (,)' : 'Tab'}</span>
+                    </div>
+                    <div class="detail-row">
+                      <span class="detail-label">Skip Rows:</span>
+                      <span class="detail-value">{selectedInstitution.skip_rows || 0}</span>
+                    </div>
+                    <div class="detail-row">
+                      <span class="detail-label">Has Header:</span>
+                      <span class="detail-value">{selectedInstitution.has_header ? 'Yes' : 'No'}</span>
+                    </div>
+                  </div>
 
-                <div class="form-actions">
-                  <button
-                    class="btn btn-primary"
-                    on:click={() => saveOwnerMappings(selectedInstitution.id)}
-                  >
-                    Save Owner Mappings
-                  </button>
-                  <button
-                    class="btn btn-danger"
-                    on:click={() => deleteInstitution(selectedInstitution.id)}
-                  >
-                    Delete Institution
-                  </button>
+                  <div class="detail-group">
+                    <h4>Data Transformations</h4>
+                    <div class="detail-row">
+                      <span class="detail-label">Date Format:</span>
+                      <span class="detail-value">{selectedInstitution.date_format || 'Not set'}</span>
+                    </div>
+                    <div class="detail-row">
+                      <span class="detail-label">Decimal Separator:</span>
+                      <span class="detail-value">{selectedInstitution.decimal_separator || '.'}</span>
+                    </div>
+                    <div class="detail-row">
+                      <span class="detail-label">Thousands Separator:</span>
+                      <span class="detail-value">{selectedInstitution.thousands_separator || 'None'}</span>
+                    </div>
+                  </div>
+
+                  <div class="detail-group">
+                    <h4>Column Mappings</h4>
+                    {#if selectedInstitution.column_mapping && Object.keys(selectedInstitution.column_mapping).length > 0}
+                      <div class="mappings-grid">
+                        {#each Object.entries(selectedInstitution.column_mapping) as [field, column]}
+                          <div class="mapping-item">
+                            <span class="mapping-field">{field}:</span>
+                            <span class="mapping-column">{column}</span>
+                          </div>
+                        {/each}
+                      </div>
+                    {:else}
+                      <p class="no-data">No column mappings defined</p>
+                    {/if}
+                  </div>
                 </div>
               {:else}
                 <p class="placeholder">Select an institution or create a new one</p>
@@ -1248,218 +1268,55 @@
           </div>
         </div>
 
-      {:else if activeTab === 'owners'}
-        <div class="settings-section-wide">
-          <h2>Owner Management</h2>
-          <p class="hint">View and manage all owners and their accounts across all institutions</p>
-
-          <div class="owners-layout">
-            <div class="owners-list">
-              <h3>Owners ({owners.length})</h3>
-              {#each owners as owner}
-                <div
-                  class="owner-item"
-                  class:selected={selectedOwner?.name === owner.name}
-                  on:click={() => selectOwner(owner)}
-                >
-                  <div class="owner-name">{owner.name}</div>
-                  <div class="owner-meta">{owner.accounts.length} account(s)</div>
-                </div>
-              {/each}
-            </div>
-
-            <div class="owner-details">
-              {#if selectedOwner}
-                <h3>{selectedOwner.name}'s Accounts</h3>
-
-                <div class="accounts-list">
-                  {#if selectedOwner.accounts.length === 0}
-                    <p class="no-accounts">No accounts assigned to this owner</p>
-                  {:else}
-                    <table class="accounts-table">
-                      <thead>
-                        <tr>
-                          <th>Account</th>
-                          <th>Institution</th>
-                          <th>Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {#each selectedOwner.accounts as account}
-                          <tr>
-                            <td class="account-number">{account.account}</td>
-                            <td>{account.institution}</td>
-                            <td>
-                              <button
-                                class="btn-icon-small"
-                                on:click={() => removeAccount(selectedOwner.name, account.account, account.institution_id)}
-                                title="Remove account"
-                              >
-                                ✕
-                              </button>
-                            </td>
-                          </tr>
-                        {/each}
-                      </tbody>
-                    </table>
-                  {/if}
-                </div>
-
-                {#if !showAddAccountForm}
-                  <button class="btn btn-primary" on:click={openAddAccountForm}>
-                    + Add Account
-                  </button>
-                {:else}
-                  <div class="add-account-form">
-                    <h4>Add Account to {selectedOwner.name}</h4>
-                    <div class="form-row">
-                      <div class="form-group">
-                        <label>Account Number</label>
-                        <input type="text" bind:value={newAccount.account} placeholder="e.g., 123456/0300" />
-                      </div>
-                      <div class="form-group">
-                        <label>Institution</label>
-                        <select bind:value={newAccount.institution_id}>
-                          {#each institutions as inst}
-                            <option value={inst.id}>{inst.name}</option>
-                          {/each}
-                        </select>
-                      </div>
-                    </div>
-                    <div class="form-actions">
-                      <button class="btn btn-primary" on:click={addAccount}>Add</button>
-                      <button class="btn btn-secondary" on:click={() => showAddAccountForm = false}>Cancel</button>
-                    </div>
-                  </div>
-                {/if}
-              {:else}
-                <p class="placeholder">Select an owner to view and manage their accounts</p>
-              {/if}
-            </div>
-          </div>
-        </div>
-
-      {:else if activeTab === 'export'}
+      {:else if activeTab === 'accounts'}
         <div class="settings-section">
-          <h2>Export to Google Sheets</h2>
-          <p class="hint">Export transactions from SQLite database to Google Sheets for viewing and sharing.</p>
-
-          <div class="export-controls">
-            <h3>Export Filters (Optional)</h3>
-            <p class="hint">Leave empty to export all transactions</p>
-
-            <div class="form-row">
-              <div class="form-group">
-                <label>Owner</label>
-                <select bind:value={exportFilters.owner}>
-                  <option value="">All Owners</option>
-                  {#each owners as owner}
-                    <option value={owner.name}>{owner.name}</option>
-                  {/each}
-                </select>
-              </div>
-
-              <div class="form-group">
-                <label>Institution</label>
-                <select bind:value={exportFilters.institution}>
-                  <option value="">All Institutions</option>
-                  {#each institutions as inst}
-                    <option value={inst.name}>{inst.name}</option>
-                  {/each}
-                </select>
-              </div>
-            </div>
-
-            <div class="form-row">
-              <div class="form-group">
-                <label>From Date</label>
-                <input type="date" bind:value={exportFilters.from_date} />
-              </div>
-
-              <div class="form-group">
-                <label>To Date</label>
-                <input type="date" bind:value={exportFilters.to_date} />
-              </div>
-            </div>
-
-            <button
-              class="btn btn-primary"
-              on:click={startExport}
-              disabled={exportInProgress}
-            >
-              {exportInProgress ? 'Exporting...' : 'Export to Google Sheets'}
+          <div class="section-header">
+            <h2>Account Descriptions</h2>
+            <button class="btn btn-primary" on:click={openAddAccountModal}>
+              + Add Account
             </button>
           </div>
+          <p class="hint">Manage account numbers and their descriptions. Institution is determined during file upload.</p>
 
-          {#if exportStatus}
-            <div class="export-status">
-              <h3>Current Export Status</h3>
-              <div class="status-card" class:status-completed={exportStatus.status === 'completed'} class:status-failed={exportStatus.status === 'failed'} class:status-processing={exportStatus.status === 'processing'}>
-                <div class="status-header">
-                  <span class="status-badge">{exportStatus.status.toUpperCase()}</span>
-                  <span class="status-id">Job ID: {exportStatus.id}</span>
-                </div>
-
-                {#if exportStatus.status === 'completed'}
-                  <div class="status-message success">
-                    ✓ {exportStatus.message || `Successfully exported ${exportStatus.exported_count} transactions`}
-                  </div>
-                {:else if exportStatus.status === 'failed'}
-                  <div class="status-message error">
-                    ✗ Export failed: {exportStatus.error}
-                  </div>
-                {:else if exportStatus.status === 'processing'}
-                  <div class="status-message processing">
-                    ⏳ Exporting {exportStatus.total_transactions} transactions to Google Sheets...
-                  </div>
-                {:else}
-                  <div class="status-message pending">
-                    ⏳ Export job pending...
-                  </div>
-                {/if}
-
-                <div class="status-details">
-                  <span>Created: {new Date(exportStatus.created_at).toLocaleString()}</span>
-                  {#if exportStatus.completed_at}
-                    <span>Completed: {new Date(exportStatus.completed_at).toLocaleString()}</span>
-                  {/if}
-                </div>
-              </div>
-            </div>
-          {/if}
-
-          {#if exportJobs.length > 0}
-            <div class="export-history">
-              <h3>Recent Export Jobs</h3>
-              <table class="export-jobs-table">
-                <thead>
+          {#if Object.keys(accounts).length === 0}
+            <p class="no-accounts">No accounts configured. Add your first account!</p>
+          {:else}
+            <table class="accounts-table">
+              <thead>
+                <tr>
+                  <th>Account Number</th>
+                  <th>Description</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each Object.entries(accounts).sort() as [accountNumber, accountConfig]}
                   <tr>
-                    <th>Job ID</th>
-                    <th>Status</th>
-                    <th>Transactions</th>
-                    <th>Created</th>
-                    <th>Completed</th>
+                    <td class="account-number">{accountNumber}</td>
+                    <td>{accountConfig.description}</td>
+                    <td>
+                      <button
+                        class="btn-icon"
+                        on:click={() => openEditAccountModal(accountNumber)}
+                        title="Edit"
+                      >
+                        ✎
+                      </button>
+                      <button
+                        class="btn-icon btn-danger"
+                        on:click={() => deleteAccount(accountNumber)}
+                        title="Delete"
+                      >
+                        🗑
+                      </button>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {#each exportJobs as job}
-                    <tr>
-                      <td class="job-id">{job.id}</td>
-                      <td>
-                        <span class="status-badge-small" class:status-completed={job.status === 'completed'} class:status-failed={job.status === 'failed'} class:status-processing={job.status === 'processing'}>
-                          {job.status}
-                        </span>
-                      </td>
-                      <td>{job.exported_count || job.total_transactions || 0}</td>
-                      <td>{new Date(job.created_at).toLocaleString()}</td>
-                      <td>{job.completed_at ? new Date(job.completed_at).toLocaleString() : '-'}</td>
-                    </tr>
-                  {/each}
-                </tbody>
-              </table>
-            </div>
+                {/each}
+              </tbody>
+            </table>
           {/if}
         </div>
+
       {/if}
     </div>
 
@@ -1470,6 +1327,53 @@
     {/if}
   {/if}
 </div>
+
+<!-- Add/Edit Account Modal -->
+{#if showAddAccountModal}
+  <div class="modal-backdrop" on:click={closeAccountModal}>
+    <div class="modal" on:click|stopPropagation>
+      <div class="modal-header">
+        <h2>{editingAccount ? 'Edit Account' : 'Add New Account'}</h2>
+        <button class="close-btn" on:click={closeAccountModal}>×</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="account-number">Account Number *</label>
+          <input
+            id="account-number"
+            type="text"
+            bind:value={accountForm.account_number}
+            placeholder="e.g., 210621040/0300"
+            disabled={!!editingAccount}
+          />
+          <p class="hint">Include bank code (e.g., /0300 for ČSOB, /6363 for Partners)</p>
+        </div>
+
+        <div class="form-group">
+          <label for="account-description">Description *</label>
+          <input
+            id="account-description"
+            type="text"
+            bind:value={accountForm.description}
+            placeholder="e.g., ČSOB Main Account"
+          />
+        </div>
+
+        {#if error}
+          <div class="error-message">{error}</div>
+        {/if}
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" on:click={closeAccountModal}>Cancel</button>
+        <button class="btn btn-primary" on:click={saveAccount}>
+          {editingAccount ? 'Update' : 'Add'}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <style>
   .settings {

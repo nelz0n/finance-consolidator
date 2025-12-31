@@ -16,8 +16,6 @@ frontend/node_modules/
 frontend/.svelte-kit/
 frontend/build/
 frontend/dist/
-package-lock.json
-frontend/package-lock.json
 
 # IDEs
 .vscode/
@@ -35,6 +33,7 @@ data/
 *.json
 !config/**/*.json
 !frontend/package.json
+!**/package-lock.json
 !frontend/jsconfig.json
 !frontend/svelte.config.js
 !frontend/vite.config.js

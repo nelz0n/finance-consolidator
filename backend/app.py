@@ -92,7 +92,33 @@ except Exception as e:
     import traceback
     traceback.print_exc()
 
-# Serve static files (Svelte frontend) from /backend/static if it exists
-static_dir = os.path.join(os.path.dirname(__file__), "static")
-if os.path.exists(static_dir):
-    app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
+# Serve static files (Svelte frontend)
+static_dir = Path(__file__).parent / "static"
+if static_dir.exists():
+    from fastapi.responses import FileResponse
+    from fastapi import HTTPException
+
+    # Mount assets directory if it exists (Vite output)
+    assets_dir = static_dir / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+    # Serve index.html at root
+    @app.get("/")
+    async def serve_root():
+        return FileResponse(static_dir / "index.html")
+
+    # Catch-all for SPA routing (must be defined last)
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        # API 404s should return JSON, not HTML
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="API endpoint not found")
+            
+        # Check if file exists in static directory (e.g. favicon.ico, manifest.json)
+        possible_file = static_dir / full_path
+        if possible_file.is_file():
+            return FileResponse(possible_file)
+            
+        # Fallback to index.html for unknown routes (SPA History API)
+        return FileResponse(static_dir / "index.html")

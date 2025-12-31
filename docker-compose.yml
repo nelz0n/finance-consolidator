@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  finance-consolidator:
+    build: .
+    image: finance-consolidator:latest
+    container_name: finance-consolidator
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist data (database, uploads, logs)
+      - ./data:/app/data
+      # Mount configuration files (institutions, settings, accounts)
+      - ./config:/app/config
+    environment:
+      # Pass Gemini API key from .env file or environment
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+    # User mapping might be needed on Linux/NAS to match host permissions
+    # user: "${UID:-1000}:${GID:-1000}"

@@ -1,6 +1,7 @@
 """Data normalizer to convert raw parsed data to Transaction objects."""
 
 import re
+import hashlib
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Dict, Any, Optional, List
@@ -29,10 +30,36 @@ class DataNormalizer:
         self.config = institution_config
         self.institution_name = institution_config.get('institution', {}).get('name', 'Unknown')
 
-        # Transaction ID sequence counter
-        self.transaction_sequence = defaultdict(int)
+        # Load central accounts mapping
+        self.accounts_config = self._load_accounts_config()
 
         logger.debug(f"Initialized normalizer for {self.institution_name}")
+
+    def _load_accounts_config(self) -> Dict[str, Any]:
+        """Load central accounts configuration"""
+        import yaml
+        from pathlib import Path
+
+        accounts_path = Path("config/accounts.yaml")
+        if not accounts_path.exists():
+            logger.warning("accounts.yaml not found, account descriptions will not be available")
+            return {}
+
+        try:
+            with open(accounts_path, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
+                return config.get('accounts', {})
+        except Exception as e:
+            logger.error(f"Failed to load accounts.yaml: {e}")
+            return {}
+
+    def _get_account_description(self, account_number: str) -> Optional[str]:
+        """Get account description from central config"""
+        if not account_number or not self.accounts_config:
+            return None
+
+        account_info = self.accounts_config.get(account_number, {})
+        return account_info.get('description')
 
     def normalize_transactions(
         self,
@@ -122,7 +149,15 @@ class DataNormalizer:
 
         # Convert to CZK (base currency)
         try:
-            amount_czk = self.converter.convert(amount, currency, 'CZK')
+            # Pass transaction date for accurate historical exchange rates
+            transaction_date = date.date() if hasattr(date, 'date') else date
+            amount_czk = self.converter.convert(
+                amount,
+                currency,
+                'CZK',
+                transaction_date=transaction_date
+            )
+            logger.debug(f"Converted {amount} {currency} to {amount_czk} CZK on {transaction_date}")
         except Exception as e:
             logger.warning(f"Currency conversion failed: {e}")
             amount_czk = amount  # Fallback to original
@@ -140,14 +175,21 @@ class DataNormalizer:
         # Get account (cleaned)
         account = self._clean_string_field(raw_data.get('account', ''))
 
-        # Determine owner
-        owner = self._determine_owner(raw_data, account)
+        # Owner is managed via database only (Settings UI), not determined here
+        owner = None
 
         # Map category
         category = self._apply_category_mapping(raw_data)
 
-        # Generate transaction ID
-        transaction_id = self._generate_transaction_id(date)
+        # Generate transaction ID (hash-based for duplicate detection across files)
+        transaction_id = self._generate_transaction_id(
+            date=date,
+            amount=amount,
+            currency=currency,
+            account=account,
+            description=description,
+            raw_data=raw_data
+        )
 
         # Get transaction type
         transaction_type = self._get_transaction_type(raw_data, amount)
@@ -389,19 +431,76 @@ class DataNormalizer:
         # Return as-is or default
         return source_category if source_category else 'Uncategorized'
 
-    def _generate_transaction_id(self, date: datetime) -> str:
+    def _generate_transaction_id(
+        self,
+        date: datetime,
+        amount: Decimal,
+        currency: str,
+        account: str,
+        description: str,
+        raw_data: Dict[str, Any]
+    ) -> str:
         """
-        Generate unique transaction ID.
+        Generate unique transaction ID based on transaction data hash.
 
-        Format: TXN_YYYYMMDD_XXX
+        This ensures the same transaction gets the same ID even if it appears
+        in multiple files (e.g., overlapping export periods).
+
+        Format: TXN_YYYYMMDD_<hash8>
+        Example: TXN_20251031_a3f5b8c9
+
+        Args:
+            date: Transaction date
+            amount: Transaction amount
+            currency: Currency code
+            account: Account number
+            description: Transaction description
+            raw_data: Raw transaction data (for additional fields)
+
+        Returns:
+            Transaction ID string
         """
         date_str = date.strftime('%Y%m%d')
 
-        # Increment sequence for this date
-        self.transaction_sequence[date_str] += 1
-        sequence = self.transaction_sequence[date_str]
+        # Build hash input from all available fields
+        # This creates a deterministic fingerprint of the transaction
+        hash_parts = [
+            date_str,
+            str(amount),
+            currency,
+            account,
+            description,
+        ]
 
-        return f"TXN_{date_str}_{sequence:03d}"
+        # Add optional fields if available (for better uniqueness)
+        optional_fields = [
+            'counterparty_account',
+            'counterparty_name',
+            'variable_symbol',
+            'constant_symbol',
+            'specific_symbol',
+            'reference',
+            'note',
+        ]
+
+        for field in optional_fields:
+            value = self._clean_string_field(raw_data.get(field, ''))
+            if value:  # Only include if not empty
+                hash_parts.append(value)
+
+        # Create hash input string (join with | to ensure field separation)
+        hash_input = '|'.join(hash_parts)
+
+        # Generate SHA256 hash and take first 8 characters
+        hash_obj = hashlib.sha256(hash_input.encode('utf-8'))
+        hash_hex = hash_obj.hexdigest()[:8]
+
+        # Format: TXN_YYYYMMDD_<hash8>
+        transaction_id = f"TXN_{date_str}_{hash_hex}"
+
+        logger.debug(f"Generated transaction ID: {transaction_id}")
+
+        return transaction_id
 
     def _get_transaction_type(self, raw_data: Dict[str, Any], amount: Decimal) -> str:
         """

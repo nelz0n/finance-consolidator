@@ -4,16 +4,10 @@
 # ============================================================================
 # INTERNAL TRANSFER DETECTION
 # ============================================================================
+# NOTE: Own accounts are automatically loaded from config/accounts.yaml
+#       Any account defined in accounts.yaml is considered your own account
+#       for internal transfer detection purposes.
 internal_transfers:
-  # List all your own account numbers
-  own_accounts:
-    - "283337817/0300"  # ČSOB Credit Card - Spolocne
-    - "210621040/0300"  # ČSOB Main - Brano
-    - "243160770/0300"  # ČSOB - Mirka
-    - "3581422554/6363" # Partners Bank
-    - "1330299329/6363" # Partners Bank
-    - "2106210400/6363" # Partners Bank
-
   # Exclusions: Do NOT mark as internal transfer if any of these conditions match
   exclusions:
     # Exclude specific counterparty names (e.g., platform rewards, bank-generated transactions)
@@ -44,12 +38,6 @@ internal_transfers:
         - "MEZI ÚČTY"
         - "MEZI UCTY"
 
-    # Method 3: Same-day opposite amount (advanced)
-    - type: "same_day_opposite_amount"
-      enabled: true
-      tolerance_czk: 1.0  # Allow 1 CZK difference
-      time_window_hours: 24
-
   # Category for detected internal transfers
   category:
     tier1: "Presuny (Neutrálne)"
@@ -67,7 +55,7 @@ internal_transfers:
 # AI FALLBACK CONFIGURATION (Gemini Flash)
 # ============================================================================
 ai_fallback:
-  enabled: true
+  enabled: true  # Enabled by default (use --disable-ai to turn off)
   provider: "gemini"
   model: "gemini-2.5-flash-lite"
 
@@ -77,20 +65,6 @@ ai_fallback:
 
   # Behavior
   confidence_threshold: 75  # Only accept if AI is >75% confident
-  cache_results: true
-  cache_file: "data/cache/ai_category_cache.json"
-
-  # Historical data for context (examples of past categorizations)
-  historical_data:
-    enabled: true
-    file_path: "g:/My Drive/Finance/Old_data.xlsx"
-    sheet_name: "Sheet1"
-    columns:
-      date: "Datum"
-      category: "Kategoria"
-      amount: "Suma"
-      description: "Detail"
-    max_examples: 20  # Number of similar examples to include in prompt
 
   # Rate limiting (Gemini free tier: 15 req/min, 1500/day)
   rate_limit:
@@ -105,25 +79,34 @@ ai_fallback:
   prompt_template: |
     You are a financial transaction categorizer for Czech household expenses.
 
-    Categorize this transaction into exactly 3 tiers from the provided category tree.
+    CRITICAL INSTRUCTIONS:
+    1. You MUST select categories from the 3-tier hierarchy below EXACTLY as shown
+    2. Tier1 is the TOP LEVEL category (first column)
+    3. Tier2 is the SECOND LEVEL category (indented with "-")
+    4. Tier3 is the THIRD LEVEL category (listed after ":")
+    5. Do NOT use a Tier2 name as Tier1 - check the hierarchy carefully!
+    6. Do NOT invent categories or modify names
 
     Transaction details:
     - Date: {date}
     - Amount: {amount} {currency}
+    - Type: {transaction_type}
     - Description: {description}
     - Counterparty: {counterparty_name}
     - Counterparty Account: {counterparty_account}
 
-    Available categories (use EXACTLY these, do not invent new ones):
+    3-TIER CATEGORY HIERARCHY (Tier1 > Tier2 > Tier3):
     {category_tree_summary}
 
-    Historical examples from past transaction of same household categorizied with old categories:
-    {historical_examples}
+    EXAMPLES OF CORRECT FORMAT:
+    - For interest income: Tier1="Prijmy", Tier2="Investicie", Tier3="Uroky"
+    - For salary: Tier1="Prijmy", Tier2="Zamestnanie", Tier3="Plat"
+    - NOT VALID: Tier1="Investicie" (Investicie is a Tier2 category!)
 
     Respond ONLY in this exact format:
-    Tier1: [exact tier1 name]
-    Tier2: [exact tier2 name]
-    Tier3: [exact tier3 name]
+    Tier1: [exact tier1 name from first column above]
+    Tier2: [exact tier2 name from indented "-" section]
+    Tier3: [exact tier3 name from list after ":")
     Confidence: [0-100]
     Reasoning: [brief explanation]
 

@@ -9,6 +9,16 @@ env/
 ENV/
 .venv
 
+# Node / Frontend
+node_modules/
+frontend/node_modules/
+.svelte-kit/
+frontend/.svelte-kit/
+frontend/build/
+frontend/dist/
+package-lock.json
+frontend/package-lock.json
+
 # IDEs
 .vscode/
 .idea/
@@ -19,11 +29,23 @@ ENV/
 # Project specific - SENSITIVE DATA
 data/
 !data/.gitkeep
+!data/logs/.gitkeep
+!data/uploads/.gitkeep
+!data/cache/.gitkeep
 *.json
 !config/**/*.json
+!frontend/package.json
+!frontend/jsconfig.json
+!frontend/svelte.config.js
+!frontend/vite.config.js
 token.pickle
 credentials.json
 google_credentials.json
+
+# Database files (contain sensitive financial data)
+*.db
+*.sqlite
+*.sqlite3
 
 # Logs
 *.log
@@ -47,8 +69,8 @@ htmlcov/
 *.bak
 *.backup
 ~$*
-
 nul
 
+# Deprecated / Old files
 .gemini/
 gha-creds-*.json

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from backend.database.connection import get_db
 from backend.database.repositories.transaction_repo import TransactionRepository
 from backend.database.models import Owner, Institution
+from backend.utils.cache import clear_dashboard_cache
 
 router = APIRouter()
 
@@ -252,6 +253,9 @@ async def reapply_rules(
                 # Leave as-is (internal_transfer, old manual_rule, uncategorized)
                 stats["unchanged"] += 1
 
+        # Clear dashboard cache after bulk categorization changes
+        clear_dashboard_cache()
+
         return {
             "status": "completed",
             "message": f"Re-applied rules to {total} transactions",
@@ -368,6 +372,9 @@ async def update_transaction(
         if not updated_txn:
             raise HTTPException(status_code=404, detail="Transaction not found or update failed")
 
+        # Clear dashboard cache after update
+        clear_dashboard_cache()
+
         return {"status": "updated", "transaction_id": transaction_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -384,6 +391,59 @@ async def delete_transaction(transaction_id: int, db: Session = Depends(get_db))
         if not success:
             raise HTTPException(status_code=404, detail="Transaction not found")
 
+        # Clear dashboard cache after deletion
+        clear_dashboard_cache()
+
         return {"status": "deleted", "transaction_id": transaction_id}
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/transactions/bulk-update")
+async def bulk_update_transactions(
+    transaction_ids: list[int],
+    updates: dict,
+    db: Session = Depends(get_db)
+):
+    """
+    Bulk update multiple transactions at once.
+
+    Useful for updating categories, descriptions, or other fields across many transactions.
+
+    Example payload:
+    {
+        "transaction_ids": [1, 2, 3],
+        "updates": {
+            "category_tier1": "Výdaje",
+            "category_tier2": "Bývanie",
+            "category_tier3": "Nájom"
+        }
+    }
+    """
+    try:
+        if not transaction_ids:
+            raise HTTPException(status_code=400, detail="No transaction IDs provided")
+
+        if not updates:
+            raise HTTPException(status_code=400, detail="No updates provided")
+
+        repo = TransactionRepository(db)
+
+        # Remove None values from updates
+        clean_updates = {k: v for k, v in updates.items() if v is not None}
+
+        # Perform bulk update
+        count = repo.bulk_update(transaction_ids, clean_updates)
+
+        # Clear dashboard cache after bulk updates
+        clear_dashboard_cache()
+
+        return {
+            "status": "success",
+            "updated_count": count,
+            "transaction_ids": transaction_ids
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))

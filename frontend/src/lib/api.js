@@ -18,13 +18,20 @@ export const transactionsApi = {
   getById: (id) => api.get(`/transactions/${id}`),
   update: (id, data) => api.put(`/transactions/${id}`, data),
   delete: (id) => api.delete(`/transactions/${id}`),
+  bulkUpdate: (transaction_ids, updates) => api.post('/transactions/bulk-update', { transaction_ids, updates }),
   getUncategorized: () => api.get('/transactions/uncategorized/list'),
   reapplyRules: (params) => api.post('/transactions/reapply-rules', null, { params })
 };
 
 // Dashboard API
 export const dashboardApi = {
-  getSummary: (params) => api.get('/dashboard/summary', { params })
+  getSummary: (params) => api.get('/dashboard/summary', { params }),
+  getCategories: (params) => api.get('/dashboard/categories', { params }),
+  getMonthlyTrends: (params) => api.get('/dashboard/trends/monthly', { params }),
+  getTopCounterparties: (params) => api.get('/dashboard/top-counterparties', { params }),
+  getSavingsRate: (params) => api.get('/dashboard/savings-rate', { params }),
+  getComparison: (params) => api.get('/dashboard/comparison', { params }),
+  getCategoryTimeSeries: (params) => api.get('/dashboard/category-time-series', { params })
 };
 
 // Categories API

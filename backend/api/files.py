@@ -13,6 +13,7 @@ from backend.schemas.file_processing import (
     FileProcessingStatus,
     InstitutionInfo
 )
+from backend.utils.cache import clear_dashboard_cache
 
 logger = logging.getLogger(__name__)
 
@@ -197,6 +198,10 @@ def process_file_task(job_id: str, file_path: str, institution: str):
         processing_jobs[job_id]['message'] = msg
 
         success = True  # Database write always returns True if it doesn't throw exception
+
+        # Clear dashboard cache after successful data import
+        clear_dashboard_cache()
+        log_to_job(job_id, "Cleared dashboard cache")
 
         log_to_job(job_id, "✅ File processing completed successfully")
         processing_jobs[job_id]['status'] = 'completed'

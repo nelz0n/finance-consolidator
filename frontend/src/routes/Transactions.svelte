@@ -46,6 +46,14 @@
   let inlineEditingCell = null;  // { txnId, field }
   let inlineTempValue = { tier1: '', tier2: '', tier3: '' };
 
+  // Bulk category editing
+  let showBulkEditModal = false;
+  let bulkEditForm = {
+    category_tier1: '',
+    category_tier2: '',
+    category_tier3: ''
+  };
+
   // Filters
   let searchQuery = '';
   let searchDebounceTimer = null;
@@ -386,6 +394,16 @@
   }
 
   onMount(async () => {
+    // Read URL parameters and apply filters
+    const urlParams = new URLSearchParams(window.location.search);
+
+    if (urlParams.has('from_date')) fromDate = urlParams.get('from_date');
+    if (urlParams.has('to_date')) toDate = urlParams.get('to_date');
+    if (urlParams.has('category_tier1')) selectedTier1 = urlParams.get('category_tier1');
+    if (urlParams.has('category_tier2')) selectedTier2 = urlParams.get('category_tier2');
+    if (urlParams.has('category_tier3')) selectedTier3 = urlParams.get('category_tier3');
+    if (urlParams.has('counterparty_name')) searchQuery = urlParams.get('counterparty_name');
+
     loadColumnPreferences();
     initializeColumnOrder();
     await loadCategoryTree();
@@ -465,7 +483,54 @@
     return '';
   }
 
-  function exportToCSV() {
+  async function exportToCSV() {
+    let transactionsToExport = [];
+
+    // If there's a selection, export only selected transactions
+    if (selectMode && selectedTransactions.length > 0) {
+      transactionsToExport = transactions.filter(txn => selectedTransactions.includes(txn.id));
+    } else {
+      // Otherwise, fetch ALL filtered transactions from the API
+      try {
+        const params = {
+          skip: 0,
+          limit: 100000, // High limit to get all
+          sort_by: sortBy,
+          sort_order: sortOrder
+        };
+
+        // Add current filters
+        if (searchQuery.trim()) params.search = searchQuery.trim();
+        if (fromDate) params.from_date = fromDate;
+        if (toDate) params.to_date = toDate;
+        if (selectedInstitution) params.institution = selectedInstitution;
+        if (selectedTier1) params.category_tier1 = selectedTier1;
+        if (selectedTier2) params.category_tier2 = selectedTier2;
+        if (selectedTier3) params.category_tier3 = selectedTier3;
+        if (showInternalOnly === 'internal') params.is_internal_transfer = true;
+        if (showInternalOnly === 'exclude') params.is_internal_transfer = false;
+        if (minAmount) params.min_amount = parseFloat(minAmount);
+        if (maxAmount) params.max_amount = parseFloat(maxAmount);
+
+        const response = await transactionsApi.getAll(params);
+        let txns = response.data.data;
+
+        // Client-side filtering for account and type
+        if (selectedAccount) {
+          txns = txns.filter(t => t.account_number === selectedAccount);
+        }
+        if (selectedType) {
+          txns = txns.filter(t => t.transaction_type === selectedType);
+        }
+
+        transactionsToExport = txns;
+      } catch (err) {
+        error = `Failed to fetch transactions for export: ${err.message}`;
+        setTimeout(() => { error = null; }, 5000);
+        return;
+      }
+    }
+
     // Get visible columns
     const visibleCols = allColumns.filter(col => visibleColumns[col.key]);
 
@@ -473,7 +538,7 @@
     const header = visibleCols.map(col => col.label).join(',');
 
     // Create CSV rows
-    const rows = transactions.map(txn => {
+    const rows = transactionsToExport.map(txn => {
       return visibleCols.map(col => {
         const value = getCellValue(txn, col.key);
         // Escape commas and quotes
@@ -494,14 +559,64 @@
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
     link.setAttribute('href', url);
-    link.setAttribute('download', `transactions_${new Date().toISOString().split('T')[0]}.csv`);
+    const filename = selectMode && selectedTransactions.length > 0
+      ? `transactions_selected_${selectedTransactions.length}_${new Date().toISOString().split('T')[0]}.csv`
+      : `transactions_all_${transactionsToExport.length}_${new Date().toISOString().split('T')[0]}.csv`;
+    link.setAttribute('download', filename);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   }
 
-  function exportToExcel() {
+  async function exportToExcel() {
+    let transactionsToExport = [];
+
+    // If there's a selection, export only selected transactions
+    if (selectMode && selectedTransactions.length > 0) {
+      transactionsToExport = transactions.filter(txn => selectedTransactions.includes(txn.id));
+    } else {
+      // Otherwise, fetch ALL filtered transactions from the API
+      try {
+        const params = {
+          skip: 0,
+          limit: 100000, // High limit to get all
+          sort_by: sortBy,
+          sort_order: sortOrder
+        };
+
+        // Add current filters
+        if (searchQuery.trim()) params.search = searchQuery.trim();
+        if (fromDate) params.from_date = fromDate;
+        if (toDate) params.to_date = toDate;
+        if (selectedInstitution) params.institution = selectedInstitution;
+        if (selectedTier1) params.category_tier1 = selectedTier1;
+        if (selectedTier2) params.category_tier2 = selectedTier2;
+        if (selectedTier3) params.category_tier3 = selectedTier3;
+        if (showInternalOnly === 'internal') params.is_internal_transfer = true;
+        if (showInternalOnly === 'exclude') params.is_internal_transfer = false;
+        if (minAmount) params.min_amount = parseFloat(minAmount);
+        if (maxAmount) params.max_amount = parseFloat(maxAmount);
+
+        const response = await transactionsApi.getAll(params);
+        let txns = response.data.data;
+
+        // Client-side filtering for account and type
+        if (selectedAccount) {
+          txns = txns.filter(t => t.account_number === selectedAccount);
+        }
+        if (selectedType) {
+          txns = txns.filter(t => t.transaction_type === selectedType);
+        }
+
+        transactionsToExport = txns;
+      } catch (err) {
+        error = `Failed to fetch transactions for export: ${err.message}`;
+        setTimeout(() => { error = null; }, 5000);
+        return;
+      }
+    }
+
     // Create a proper Excel file using HTML table format that Excel can read as .xlsx
     const visibleCols = allColumns.filter(col => visibleColumns[col.key]);
 
@@ -525,7 +640,7 @@
 
     // Data rows
     html += '<tbody>';
-    transactions.forEach(txn => {
+    transactionsToExport.forEach(txn => {
       html += '<tr>';
       visibleCols.forEach(col => {
         const value = getCellValue(txn, col.key);
@@ -546,7 +661,10 @@
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
     link.setAttribute('href', url);
-    link.setAttribute('download', `transactions_${new Date().toISOString().split('T')[0]}.xls`);
+    const filename = selectMode && selectedTransactions.length > 0
+      ? `transactions_selected_${selectedTransactions.length}_${new Date().toISOString().split('T')[0]}.xls`
+      : `transactions_all_${transactionsToExport.length}_${new Date().toISOString().split('T')[0]}.xls`;
+    link.setAttribute('download', filename);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
@@ -772,6 +890,59 @@ AI categorization will NOT be called.`;
     }
   }
 
+  function openBulkEditModal() {
+    bulkEditForm = {
+      category_tier1: '',
+      category_tier2: '',
+      category_tier3: ''
+    };
+    showBulkEditModal = true;
+  }
+
+  async function saveBulkEdit() {
+    const count = selectedTransactions.length;
+
+    // Validate that at least one category is selected
+    if (!bulkEditForm.category_tier1 && !bulkEditForm.category_tier2 && !bulkEditForm.category_tier3) {
+      error = '⚠️ Please select at least one category tier';
+      setTimeout(() => { error = null; }, 3000);
+      return;
+    }
+
+    if (!confirm(`Update categories for ${count} transaction(s)?`)) {
+      return;
+    }
+
+    try {
+      loading = true;
+      showBulkEditModal = false;
+
+      // Build updates object with only filled fields
+      const updates = {};
+      if (bulkEditForm.category_tier1) updates.category_tier1 = bulkEditForm.category_tier1;
+      if (bulkEditForm.category_tier2) updates.category_tier2 = bulkEditForm.category_tier2;
+      if (bulkEditForm.category_tier3) updates.category_tier3 = bulkEditForm.category_tier3;
+
+      const response = await transactionsApi.bulkUpdate(selectedTransactions, updates);
+
+      error = `✅ Successfully updated ${response.data.updated_count} transaction(s)`;
+      setTimeout(() => { error = null; }, 5000);
+
+      selectedTransactions = [];
+      selectMode = false;
+      await loadTransactions();
+    } catch (err) {
+      error = `Failed to update transactions: ${err.message}`;
+      setTimeout(() => { error = null; }, 5000);
+    } finally {
+      loading = false;
+    }
+  }
+
+  // Computed for bulk edit tier2/tier3 options
+  $: bulkEditTier2Options = bulkEditForm.category_tier1 ? getTier2Options(bulkEditForm.category_tier1) : [];
+  $: bulkEditTier3Options = bulkEditForm.category_tier1 && bulkEditForm.category_tier2 ? getTier3Options(bulkEditForm.category_tier1, bulkEditForm.category_tier2) : [];
+
   // Inline category editing functions
   function startInlineEdit(txnId, field, txn) {
     inlineEditingCell = { txnId, field };
@@ -826,6 +997,9 @@ AI categorization will NOT be called.`;
         </button>
       {/if}
       {#if selectMode && selectedTransactions.length > 0}
+        <button class="btn btn-primary" on:click={openBulkEditModal}>
+          ✏️ Edit Categories ({selectedTransactions.length})
+        </button>
         <button class="btn btn-danger" on:click={deleteBatchTransactions}>
           🗑️ Delete Selected ({selectedTransactions.length})
         </button>
@@ -1368,6 +1542,65 @@ AI categorization will NOT be called.`;
         <div class="modal-footer">
           <button class="btn btn-secondary" on:click={closeEditModal}>Cancel</button>
           <button class="btn btn-primary" on:click={saveTransaction}>Save Changes</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Bulk Edit Categories Modal -->
+  {#if showBulkEditModal}
+    <div class="modal-backdrop" on:click={() => showBulkEditModal = false}>
+      <div class="modal" on:click|stopPropagation>
+        <div class="modal-header">
+          <h2>✏️ Bulk Edit Categories ({selectedTransactions.length} transactions)</h2>
+          <button class="btn-close" on:click={() => showBulkEditModal = false}>✕</button>
+        </div>
+        <div class="modal-body">
+          <p style="margin-bottom: 20px; color: #666;">
+            Update categories for <strong>{selectedTransactions.length}</strong> selected transaction(s).
+            Only fill in the categories you want to update.
+          </p>
+
+          <fieldset>
+            <legend>Categories</legend>
+            <div class="form-group">
+              <label>Category (Tier1)</label>
+              <select bind:value={bulkEditForm.category_tier1}>
+                <option value="">-- Keep unchanged --</option>
+                {#each categoryTree as cat}
+                  <option value={cat.tier1}>{cat.tier1}</option>
+                {/each}
+              </select>
+            </div>
+
+            {#if bulkEditForm.category_tier1}
+              <div class="form-group">
+                <label>Category (Tier2)</label>
+                <select bind:value={bulkEditForm.category_tier2}>
+                  <option value="">-- Keep unchanged --</option>
+                  {#each bulkEditTier2Options as tier2}
+                    <option value={tier2.tier2}>{tier2.tier2}</option>
+                  {/each}
+                </select>
+              </div>
+            {/if}
+
+            {#if bulkEditForm.category_tier2}
+              <div class="form-group">
+                <label>Category (Tier3)</label>
+                <select bind:value={bulkEditForm.category_tier3}>
+                  <option value="">-- Keep unchanged --</option>
+                  {#each bulkEditTier3Options as tier3}
+                    <option value={tier3}>{tier3}</option>
+                  {/each}
+                </select>
+              </div>
+            {/if}
+          </fieldset>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" on:click={() => showBulkEditModal = false}>Cancel</button>
+          <button class="btn btn-primary" on:click={saveBulkEdit}>Update Categories</button>
         </div>
       </div>
     </div>

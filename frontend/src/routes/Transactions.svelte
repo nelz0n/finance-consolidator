@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { transactionsApi, categoriesApi, accountsApi } from '../lib/api.js';
+  import { transactionsApi, categoriesApi, accountsApi, api } from '../lib/api.js';
 
   // Data
   let transactions = [];
@@ -53,6 +53,28 @@
     category_tier2: '',
     category_tier3: ''
   };
+
+  // Rule creation from transaction
+  let showRuleModal = false;
+  let ruleFormPrefill = {
+    priority: 50,
+    description_contains: '',
+    institution_exact: '',
+    counterparty_account_exact: '',
+    counterparty_name_contains: '',
+    variable_symbol_exact: '',
+    type_contains: '',
+    amount_czk_min: null,
+    amount_czk_max: null,
+    category_tier1: '',
+    category_tier2: '',
+    category_tier3: ''
+  };
+  let ruleMatchingCount = null;
+  let tier2Options = [];
+  let tier3Options = [];
+  let testingRule = false;
+  let savingRule = false;
 
   // Filters
   let searchQuery = '';
@@ -786,6 +808,143 @@ AI categorization will NOT be called.`;
     }
   }
 
+  // Rule creation functions
+  async function openRuleModal(txn) {
+    // Pre-fill ALL fields from transaction
+    ruleFormPrefill = {
+      priority: 50,  // Default priority
+      description_contains: txn.description || '',
+      institution_exact: txn.institution || '',
+      counterparty_account_exact: txn.counterparty_account || '',
+      counterparty_name_contains: txn.counterparty_name || '',
+      variable_symbol_exact: txn.variable_symbol || '',
+      type_contains: txn.transaction_type || '',
+      amount_czk_min: txn.amount_czk ? Math.floor(txn.amount_czk * 0.9) : null,
+      amount_czk_max: txn.amount_czk ? Math.ceil(txn.amount_czk * 1.1) : null,
+      category_tier1: txn.category_tier1 || '',
+      category_tier2: txn.category_tier2 || '',
+      category_tier3: txn.category_tier3 || ''
+    };
+
+    // Load category options if categories are set
+    if (ruleFormPrefill.category_tier1) {
+      await loadRuleTier2Categories();
+    }
+    if (ruleFormPrefill.category_tier2) {
+      await loadRuleTier3Categories();
+    }
+
+    showRuleModal = true;
+    ruleMatchingCount = null;
+  }
+
+  async function loadRuleTier2Categories() {
+    if (!ruleFormPrefill.category_tier1) {
+      tier2Options = [];
+      return;
+    }
+    try {
+      const response = await categoriesApi.getTier2(ruleFormPrefill.category_tier1);
+      tier2Options = response.data || [];
+    } catch (err) {
+      console.error('Failed to load tier2 categories:', err);
+      tier2Options = [];
+    }
+  }
+
+  async function loadRuleTier3Categories() {
+    if (!ruleFormPrefill.category_tier1 || !ruleFormPrefill.category_tier2) {
+      tier3Options = [];
+      return;
+    }
+    try {
+      const response = await categoriesApi.getTier3(ruleFormPrefill.category_tier1, ruleFormPrefill.category_tier2);
+      tier3Options = response.data || [];
+    } catch (err) {
+      console.error('Failed to load tier3 categories:', err);
+      tier3Options = [];
+    }
+  }
+
+  async function testRule() {
+    if (!ruleFormPrefill.category_tier1 || !ruleFormPrefill.category_tier2 || !ruleFormPrefill.category_tier3) {
+      alert('Please select all three category tiers before testing');
+      return;
+    }
+
+    try {
+      testingRule = true;
+      const response = await api.post('/rules/test?count_matches=true', ruleFormPrefill);
+      ruleMatchingCount = response.data.matching_count;
+    } catch (err) {
+      console.error('Failed to test rule:', err);
+      alert('Failed to test rule: ' + err.message);
+    } finally {
+      testingRule = false;
+    }
+  }
+
+  async function saveRule() {
+    // Validate required fields
+    if (!ruleFormPrefill.category_tier1 || !ruleFormPrefill.category_tier2 || !ruleFormPrefill.category_tier3) {
+      alert('All three category tiers are required');
+      return;
+    }
+
+    // Build conditions object (only non-empty fields)
+    let hasCondition = false;
+    if (ruleFormPrefill.description_contains) hasCondition = true;
+    if (ruleFormPrefill.institution_exact) hasCondition = true;
+    if (ruleFormPrefill.counterparty_account_exact) hasCondition = true;
+    if (ruleFormPrefill.counterparty_name_contains) hasCondition = true;
+    if (ruleFormPrefill.variable_symbol_exact) hasCondition = true;
+    if (ruleFormPrefill.type_contains) hasCondition = true;
+    if (ruleFormPrefill.amount_czk_min !== null) hasCondition = true;
+    if (ruleFormPrefill.amount_czk_max !== null) hasCondition = true;
+
+    if (!hasCondition) {
+      alert('At least one condition is required');
+      return;
+    }
+
+    try {
+      savingRule = true;
+
+      // Create rule object matching RuleCreate schema
+      const newRule = {
+        priority: ruleFormPrefill.priority,
+        description_contains: ruleFormPrefill.description_contains || null,
+        institution_exact: ruleFormPrefill.institution_exact || null,
+        counterparty_account_exact: ruleFormPrefill.counterparty_account_exact || null,
+        counterparty_name_contains: ruleFormPrefill.counterparty_name_contains || null,
+        variable_symbol_exact: ruleFormPrefill.variable_symbol_exact || null,
+        type_contains: ruleFormPrefill.type_contains || null,
+        amount_czk_min: ruleFormPrefill.amount_czk_min,
+        amount_czk_max: ruleFormPrefill.amount_czk_max,
+        tier1: ruleFormPrefill.category_tier1,
+        tier2: ruleFormPrefill.category_tier2,
+        tier3: ruleFormPrefill.category_tier3,
+        owner: ''
+      };
+
+      await api.post('/rules', newRule);
+
+      showRuleModal = false;
+
+      // Show success message with matching count
+      if (ruleMatchingCount !== null) {
+        alert(`Rule created successfully!\n\n${ruleMatchingCount} existing transactions match this rule.\n\nUse "Re-apply Rules" to update them.`);
+      } else {
+        alert('Rule created successfully!\n\nUse "Re-apply Rules" to categorize transactions.');
+      }
+    } catch (err) {
+      console.error('Failed to create rule:', err);
+      alert('Failed to create rule: ' + (err.response?.data?.detail || err.message));
+    } finally {
+      savingRule = false;
+    }
+  }
+
   // Mass selection functions
   function toggleSelectAll() {
     if (selectedTransactions.length === transactions.length) {
@@ -1291,6 +1450,9 @@ AI categorization will NOT be called.`;
                         <button class="btn-icon" on:click={() => openEditModal(txn)} title="Edit">
                           ✏️
                         </button>
+                        <button class="btn-icon" on:click={() => openRuleModal(txn)} title="Create rule from this transaction">
+                          ➕
+                        </button>
                         <button class="btn-icon btn-danger" on:click={() => deleteTransaction(txn)} title="Delete">
                           🗑️
                         </button>
@@ -1601,6 +1763,199 @@ AI categorization will NOT be called.`;
         <div class="modal-footer">
           <button class="btn btn-secondary" on:click={() => showBulkEditModal = false}>Cancel</button>
           <button class="btn btn-primary" on:click={saveBulkEdit}>Update Categories</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Rule Creation Modal -->
+  {#if showRuleModal}
+    <div class="modal-backdrop" on:click={() => showRuleModal = false}>
+      <div class="modal rule-modal" on:click|stopPropagation>
+        <div class="modal-header">
+          <h2>➕ Create Categorization Rule</h2>
+          <button class="btn-close" on:click={() => showRuleModal = false}>✕</button>
+        </div>
+        <div class="modal-body">
+          <!-- Priority -->
+          <div class="form-group">
+            <label for="rule-priority">Priority (0-1000)</label>
+            <input
+              type="number"
+              id="rule-priority"
+              bind:value={ruleFormPrefill.priority}
+              min="0"
+              max="1000"
+            />
+            <small>Higher priority rules are checked first</small>
+          </div>
+
+          <!-- Conditions Section -->
+          <h3>Conditions (all must match)</h3>
+          <p class="hint">Pre-filled from transaction. Remove/edit fields as needed.</p>
+
+          <div class="form-group">
+            <label for="rule-description">Description Contains</label>
+            <input
+              type="text"
+              id="rule-description"
+              bind:value={ruleFormPrefill.description_contains}
+              placeholder="e.g., NETFLIX"
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="rule-institution">Institution (exact)</label>
+            <input
+              type="text"
+              id="rule-institution"
+              bind:value={ruleFormPrefill.institution_exact}
+              placeholder="e.g., ČSOB"
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="rule-counterparty-name">Counterparty Name Contains</label>
+            <input
+              type="text"
+              id="rule-counterparty-name"
+              bind:value={ruleFormPrefill.counterparty_name_contains}
+              placeholder="e.g., Google"
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="rule-counterparty-account">Counterparty Account (exact)</label>
+            <input
+              type="text"
+              id="rule-counterparty-account"
+              bind:value={ruleFormPrefill.counterparty_account_exact}
+              placeholder="e.g., 123456789/0300"
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="rule-variable-symbol">Variable Symbol (exact)</label>
+            <input
+              type="text"
+              id="rule-variable-symbol"
+              bind:value={ruleFormPrefill.variable_symbol_exact}
+              placeholder="e.g., 12345"
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="rule-type">Type Contains</label>
+            <input
+              type="text"
+              id="rule-type"
+              bind:value={ruleFormPrefill.type_contains}
+              placeholder="e.g., Úroky"
+            />
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="rule-amount-min">Amount Min (CZK)</label>
+              <input
+                type="number"
+                id="rule-amount-min"
+                bind:value={ruleFormPrefill.amount_czk_min}
+                step="0.01"
+              />
+            </div>
+            <div class="form-group">
+              <label for="rule-amount-max">Amount Max (CZK)</label>
+              <input
+                type="number"
+                id="rule-amount-max"
+                bind:value={ruleFormPrefill.amount_czk_max}
+                step="0.01"
+              />
+            </div>
+          </div>
+
+          <!-- Category Assignment -->
+          <h3>Category Assignment (required)</h3>
+
+          <div class="form-group">
+            <label for="rule-tier1">Tier 1 *</label>
+            <select
+              id="rule-tier1"
+              bind:value={ruleFormPrefill.category_tier1}
+              on:change={() => {
+                ruleFormPrefill.category_tier2 = '';
+                ruleFormPrefill.category_tier3 = '';
+                loadRuleTier2Categories();
+              }}
+            >
+              <option value="">Select Tier 1...</option>
+              {#each categoryTree as cat}
+                <option value={cat.tier1}>{cat.tier1}</option>
+              {/each}
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="rule-tier2">Tier 2 *</label>
+            <select
+              id="rule-tier2"
+              bind:value={ruleFormPrefill.category_tier2}
+              on:change={() => {
+                ruleFormPrefill.category_tier3 = '';
+                loadRuleTier3Categories();
+              }}
+              disabled={!ruleFormPrefill.category_tier1}
+            >
+              <option value="">Select Tier 2...</option>
+              {#each tier2Options as tier2}
+                <option value={tier2.tier2}>{tier2.tier2}</option>
+              {/each}
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="rule-tier3">Tier 3 *</label>
+            <select
+              id="rule-tier3"
+              bind:value={ruleFormPrefill.category_tier3}
+              disabled={!ruleFormPrefill.category_tier2}
+            >
+              <option value="">Select Tier 3...</option>
+              {#each tier3Options as tier3}
+                <option value={tier3}>{tier3}</option>
+              {/each}
+            </select>
+          </div>
+
+          <!-- Test Results -->
+          {#if ruleMatchingCount !== null}
+            <div class="test-results">
+              <strong>Matching Transactions:</strong> {ruleMatchingCount}
+              {#if ruleMatchingCount > 100}
+                <span class="warning">⚠️ This rule is very broad</span>
+              {/if}
+            </div>
+          {/if}
+        </div>
+        <div class="modal-footer">
+          <button
+            class="btn btn-secondary"
+            on:click={testRule}
+            disabled={testingRule}
+          >
+            {testingRule ? 'Testing...' : '🔍 Test Rule'}
+          </button>
+          <button class="btn btn-secondary" on:click={() => showRuleModal = false}>
+            Cancel
+          </button>
+          <button
+            class="btn btn-primary"
+            on:click={saveRule}
+            disabled={savingRule}
+          >
+            {savingRule ? 'Creating...' : 'Create Rule'}
+          </button>
         </div>
       </div>
     </div>
@@ -2283,6 +2638,50 @@ AI categorization will NOT be called.`;
     padding: 1.5rem;
     border-top: 1px solid #e0e0e0;
     background-color: #f8f9fa;
+  }
+
+  /* Rule Modal Specific Styles */
+  .rule-modal {
+    max-width: 700px;
+    max-height: 90vh;
+  }
+
+  .rule-modal .modal-body {
+    overflow-y: auto;
+  }
+
+  .rule-modal h3 {
+    margin-top: 24px;
+    margin-bottom: 12px;
+    color: #2c3e50;
+    font-size: 1.1rem;
+    font-weight: 600;
+  }
+
+  .hint {
+    font-size: 0.85rem;
+    color: #666;
+    margin-bottom: 12px;
+    font-style: italic;
+  }
+
+  .form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .test-results {
+    padding: 12px;
+    background: #e8f5e9;
+    border: 1px solid #4caf50;
+    border-radius: 6px;
+    margin-top: 16px;
+  }
+
+  .test-results .warning {
+    color: #f57c00;
+    margin-left: 8px;
   }
 
   fieldset {

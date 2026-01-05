@@ -61,6 +61,13 @@ async def health_check():
         ]
     }
 
+# Version info endpoint
+@app.get("/api/v1/version")
+async def get_version():
+    """Get application version information"""
+    from backend.utils.version import get_version_info
+    return get_version_info()
+
 # Import and include routers
 try:
     from backend.api import transactions, dashboard, files, categories, rules, settings, accounts

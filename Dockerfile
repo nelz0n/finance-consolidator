@@ -16,6 +16,11 @@ RUN npm run build
 FROM python:3.10-slim
 WORKDIR /app
 
+# Build arguments for version tracking
+ARG GIT_COMMIT_SHA=unknown
+ARG GIT_BRANCH=unknown
+ARG BUILD_TIMESTAMP=unknown
+
 # Install basic system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
@@ -43,6 +48,10 @@ COPY --from=frontend-build /app/backend/static backend/static
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
+ENV GIT_COMMIT_SHA=${GIT_COMMIT_SHA}
+ENV GIT_BRANCH=${GIT_BRANCH}
+ENV BUILD_TIMESTAMP=${BUILD_TIMESTAMP}
+ENV ENVIRONMENT=production
 
 # Expose the port
 EXPOSE 8000

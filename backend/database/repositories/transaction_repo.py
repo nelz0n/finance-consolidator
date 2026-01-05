@@ -522,10 +522,13 @@ class TransactionRepository:
         from_date: Optional[date] = None,
         to_date: Optional[date] = None,
         owner_id: Optional[int] = None,
+        tier1: Optional[str] = None,
+        tier2: Optional[str] = None,
         include_internal: bool = False
     ) -> Dict[str, Any]:
         """
-        Get monthly breakdown by all tier1 categories for stacked area chart.
+        Get monthly breakdown by categories for stacked area chart.
+        Supports drill-down: tier1 → tier2 → tier3
 
         Returns a dict with:
         - months: list of month labels
@@ -534,11 +537,27 @@ class TransactionRepository:
         """
         from sqlalchemy import func, case
 
-        # Get all unique tier1 categories
-        categories_query = self.db.query(Transaction.category_tier1).distinct()
+        # Determine which tier to show based on drill-down state
+        if tier1 and tier2:
+            # Show tier3 breakdown for selected tier1+tier2
+            category_field = Transaction.category_tier3
+            categories_query = self.db.query(Transaction.category_tier3).distinct()
+            categories_query = categories_query.filter(Transaction.category_tier1 == tier1)
+            categories_query = categories_query.filter(Transaction.category_tier2 == tier2)
+        elif tier1:
+            # Show tier2 breakdown for selected tier1
+            category_field = Transaction.category_tier2
+            categories_query = self.db.query(Transaction.category_tier2).distinct()
+            categories_query = categories_query.filter(Transaction.category_tier1 == tier1)
+        else:
+            # Show tier1 breakdown (top level)
+            category_field = Transaction.category_tier1
+            categories_query = self.db.query(Transaction.category_tier1).distinct()
+
+        # Apply common filters
         if not include_internal:
             categories_query = categories_query.filter(Transaction.is_internal_transfer == False)
-        categories_query = categories_query.filter(Transaction.category_tier1.isnot(None))
+        categories_query = categories_query.filter(category_field.isnot(None))
         categories_query = categories_query.filter(Transaction.amount < 0)  # Only expenses
 
         if from_date:
@@ -555,7 +574,7 @@ class TransactionRepository:
 
         query = self.db.query(
             month_label,
-            Transaction.category_tier1,
+            category_field,
             func.sum(func.abs(Transaction.amount_czk)).label('expenses')
         )
 
@@ -569,10 +588,16 @@ class TransactionRepository:
         if not include_internal:
             query = query.filter(Transaction.is_internal_transfer == False)
 
-        query = query.filter(Transaction.category_tier1.isnot(None))
+        # Apply drill-down filters
+        if tier1:
+            query = query.filter(Transaction.category_tier1 == tier1)
+        if tier2:
+            query = query.filter(Transaction.category_tier2 == tier2)
+
+        query = query.filter(category_field.isnot(None))
         query = query.filter(Transaction.amount < 0)  # Only expenses
 
-        query = query.group_by(month_label, Transaction.category_tier1)
+        query = query.group_by(month_label, category_field)
         query = query.order_by(month_label)
 
         results = query.all()
@@ -581,7 +606,7 @@ class TransactionRepository:
         months_data = {}
         for row in results:
             month = row.month
-            category = row.category_tier1
+            category = row[1]  # The category field (tier1, tier2, or tier3)
             expenses = float(row.expenses) if row.expenses else 0
 
             if month not in months_data:

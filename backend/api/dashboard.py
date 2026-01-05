@@ -252,10 +252,12 @@ async def get_category_time_series(
     from_date: Optional[date] = None,
     to_date: Optional[date] = None,
     owner: Optional[str] = None,
+    tier1: Optional[str] = None,
+    tier2: Optional[str] = None,
     include_internal: bool = False,
     db: Session = Depends(get_db)
 ):
-    """Get category breakdown over time for stacked area chart"""
+    """Get category breakdown over time for stacked area chart with drill-down support"""
     try:
         repo = TransactionRepository(db)
 
@@ -269,6 +271,8 @@ async def get_category_time_series(
             from_date=from_date,
             to_date=to_date,
             owner_id=owner_id,
+            tier1=tier1,
+            tier2=tier2,
             include_internal=include_internal
         )
 

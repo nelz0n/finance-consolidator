@@ -345,7 +345,7 @@
 
       <div class="filter-group checkbox">
         <label>
-          <input type="checkbox" bind:checked={includeInternal} />
+          <input type="checkbox" bind:checked={includeInternal} on:change={loadDashboard} />
           Include Internal Transfers
         </label>
       </div>

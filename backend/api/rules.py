@@ -257,43 +257,107 @@ async def delete_rule(rule_id: int):
 
 
 @router.post("/test")
-async def test_rule(rule: RuleCreate, transaction: Dict):
-    """Test a rule against a sample transaction"""
+async def test_rule(
+    rule: RuleCreate,
+    transaction: Optional[Dict] = None,
+    count_matches: bool = False
+):
+    """
+    Test a rule against a sample transaction or count matching transactions.
+
+    Args:
+        rule: The rule to test
+        transaction: Optional transaction to test against (required if count_matches=False)
+        count_matches: If True, count all transactions matching the rule conditions
+
+    Returns:
+        If count_matches=False: {'matches': bool, 'would_categorize_as': {...}}
+        If count_matches=True: {'matching_count': int, 'rule_conditions': {...}}
+    """
     try:
-        from src.utils.categorizer import TransactionCategorizer
+        if count_matches:
+            # Count all transactions matching this rule
+            from backend.database.connection import get_db_context
+            from backend.database.repositories.transaction_repo import TransactionRepository
 
-        categorizer = TransactionCategorizer(
-            config_path="config/categorization.yaml",
-            settings_path="config/settings.yaml"
-        )
+            # Build conditions dict from rule
+            conditions = {}
+            if rule.description_contains:
+                conditions['description_contains'] = rule.description_contains
+            if rule.institution_exact:
+                conditions['institution_exact'] = rule.institution_exact
+            if rule.counterparty_account_exact:
+                conditions['counterparty_account_exact'] = rule.counterparty_account_exact
+            if rule.counterparty_name_contains:
+                conditions['counterparty_name_contains'] = rule.counterparty_name_contains
+            if rule.variable_symbol_exact:
+                conditions['variable_symbol_exact'] = rule.variable_symbol_exact
+            if rule.type_contains:
+                conditions['type_contains'] = rule.type_contains
+            if rule.amount_czk_min is not None:
+                conditions['amount_czk_min'] = rule.amount_czk_min
+            if rule.amount_czk_max is not None:
+                conditions['amount_czk_max'] = rule.amount_czk_max
 
-        # Convert rule to dict format
-        rule_dict = {
-            'priority': rule.priority,
-            'description_contains': rule.description_contains or '',
-            'institution_exact': rule.institution_exact or '',
-            'counterparty_account_exact': rule.counterparty_account_exact or '',
-            'counterparty_name_contains': rule.counterparty_name_contains or '',
-            'variable_symbol_exact': rule.variable_symbol_exact or '',
-            'type_contains': rule.type_contains or '',
-            'amount_czk_min': rule.amount_czk_min,
-            'amount_czk_max': rule.amount_czk_max,
-            'tier1': rule.tier1,
-            'tier2': rule.tier2,
-            'tier3': rule.tier3
-        }
+            with get_db_context() as db:
+                repo = TransactionRepository(db)
+                matching_count = repo.count_rule_matches(conditions)
 
-        # Test if rule matches
-        matches = categorizer._sheets_rule_matches(rule_dict, transaction)
+            return {
+                'matching_count': matching_count,
+                'rule_conditions': conditions,
+                'would_categorize_as': {
+                    'tier1': rule.tier1,
+                    'tier2': rule.tier2,
+                    'tier3': rule.tier3
+                }
+            }
+        else:
+            # Test against single transaction (original behavior)
+            if transaction is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail="transaction parameter is required when count_matches=False"
+                )
 
-        return {
-            'matches': matches,
-            'would_categorize_as': {
+            from src.utils.categorizer import TransactionCategorizer
+
+            categorizer = TransactionCategorizer(
+                config_path="config/categorization.yaml",
+                settings_path="config/settings.yaml"
+            )
+
+            # Convert rule to dict format
+            rule_dict = {
+                'priority': rule.priority,
+                'description_contains': rule.description_contains or '',
+                'institution_exact': rule.institution_exact or '',
+                'counterparty_account_exact': rule.counterparty_account_exact or '',
+                'counterparty_name_contains': rule.counterparty_name_contains or '',
+                'variable_symbol_exact': rule.variable_symbol_exact or '',
+                'type_contains': rule.type_contains or '',
+                'amount_czk_min': rule.amount_czk_min,
+                'amount_czk_max': rule.amount_czk_max,
                 'tier1': rule.tier1,
                 'tier2': rule.tier2,
                 'tier3': rule.tier3
-            } if matches else None
-        }
+            }
+
+            # Test if rule matches
+            matches = categorizer._sheets_rule_matches(rule_dict, transaction)
+
+            return {
+                'matches': matches,
+                'would_categorize_as': {
+                    'tier1': rule.tier1,
+                    'tier2': rule.tier2,
+                    'tier3': rule.tier3
+                } if matches else None
+            }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error testing rule: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))

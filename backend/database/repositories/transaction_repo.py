@@ -747,3 +747,69 @@ class TransactionRepository:
             'change': change,
             'change_percent': change_percent
         }
+
+    def count_rule_matches(self, rule_conditions: Dict[str, Any]) -> int:
+        """
+        Count how many existing transactions would match the given rule conditions.
+        Uses same matching logic as categorizer.
+
+        Args:
+            rule_conditions: Dictionary with optional keys:
+                - description_contains
+                - institution_exact
+                - counterparty_name_contains
+                - counterparty_account_exact
+                - variable_symbol_exact
+                - type_contains
+                - amount_czk_min
+                - amount_czk_max
+
+        Returns:
+            Number of active transactions matching all provided conditions
+        """
+        # Get all active transactions
+        query = self.db.query(Transaction).filter(Transaction.is_active == True)
+
+        # Description contains (case insensitive)
+        if 'description_contains' in rule_conditions and rule_conditions['description_contains']:
+            query = query.filter(
+                Transaction.description.ilike(f"%{rule_conditions['description_contains']}%")
+            )
+
+        # Institution exact (case insensitive)
+        if 'institution_exact' in rule_conditions and rule_conditions['institution_exact']:
+            query = query.filter(
+                Transaction.institution.ilike(rule_conditions['institution_exact'])
+            )
+
+        # Counterparty name contains (case insensitive)
+        if 'counterparty_name_contains' in rule_conditions and rule_conditions['counterparty_name_contains']:
+            query = query.filter(
+                Transaction.counterparty_name.ilike(f"%{rule_conditions['counterparty_name_contains']}%")
+            )
+
+        # Counterparty account exact
+        if 'counterparty_account_exact' in rule_conditions and rule_conditions['counterparty_account_exact']:
+            query = query.filter(
+                Transaction.counterparty_account == rule_conditions['counterparty_account_exact']
+            )
+
+        # Variable symbol exact
+        if 'variable_symbol_exact' in rule_conditions and rule_conditions['variable_symbol_exact']:
+            query = query.filter(
+                Transaction.variable_symbol == rule_conditions['variable_symbol_exact']
+            )
+
+        # Type contains (case insensitive)
+        if 'type_contains' in rule_conditions and rule_conditions['type_contains']:
+            query = query.filter(
+                Transaction.type.ilike(f"%{rule_conditions['type_contains']}%")
+            )
+
+        # Amount range (in CZK)
+        if 'amount_czk_min' in rule_conditions and rule_conditions['amount_czk_min'] is not None:
+            query = query.filter(Transaction.amount_czk >= rule_conditions['amount_czk_min'])
+        if 'amount_czk_max' in rule_conditions and rule_conditions['amount_czk_max'] is not None:
+            query = query.filter(Transaction.amount_czk <= rule_conditions['amount_czk_max'])
+
+        return query.count()

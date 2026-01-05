@@ -874,11 +874,29 @@ AI categorization will NOT be called.`;
 
     try {
       testingRule = true;
-      const response = await api.post('/rules/test?count_matches=true', ruleFormPrefill);
+
+      // Transform payload to match RuleCreate schema
+      const rulePayload = {
+        priority: ruleFormPrefill.priority,
+        description_contains: ruleFormPrefill.description_contains || null,
+        institution_exact: ruleFormPrefill.institution_exact || null,
+        counterparty_account_exact: ruleFormPrefill.counterparty_account_exact || null,
+        counterparty_name_contains: ruleFormPrefill.counterparty_name_contains || null,
+        variable_symbol_exact: ruleFormPrefill.variable_symbol_exact || null,
+        type_contains: ruleFormPrefill.type_contains || null,
+        amount_czk_min: ruleFormPrefill.amount_czk_min,
+        amount_czk_max: ruleFormPrefill.amount_czk_max,
+        tier1: ruleFormPrefill.category_tier1,
+        tier2: ruleFormPrefill.category_tier2,
+        tier3: ruleFormPrefill.category_tier3,
+        owner: ''
+      };
+
+      const response = await api.post('/rules/test?count_matches=true', rulePayload);
       ruleMatchingCount = response.data.matching_count;
     } catch (err) {
       console.error('Failed to test rule:', err);
-      alert('Failed to test rule: ' + err.message);
+      alert('Failed to test rule: ' + (err.response?.data?.detail || err.message));
     } finally {
       testingRule = false;
     }
@@ -1909,7 +1927,7 @@ AI categorization will NOT be called.`;
             >
               <option value="">Select Tier 2...</option>
               {#each tier2Options as tier2}
-                <option value={tier2.tier2}>{tier2.tier2}</option>
+                <option value={tier2}>{tier2}</option>
               {/each}
             </select>
           </div>

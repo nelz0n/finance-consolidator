@@ -136,15 +136,15 @@ async def create_tier1_category(name: str):
 
         with get_db_context() as db:
             # Check if already exists
-            existing = db.query(Category).filter(Category.tier1 == name, Category.tier2 == None).first()
+            existing = db.query(Category).filter(Category.tier1 == name, Category.tier2 == "").first()
             if existing:
                 raise HTTPException(status_code=400, detail="Category already exists")
 
             # Create new tier1 category (with empty tier2 and tier3)
             new_category = Category(
                 tier1=name,
-                tier2=None,
-                tier3=None
+                tier2="",
+                tier3=""
             )
             db.add(new_category)
             db.commit()
@@ -177,7 +177,7 @@ async def create_tier2_category(tier1: str, name: str):
             existing = db.query(Category).filter(
                 Category.tier1 == tier1,
                 Category.tier2 == name,
-                Category.tier3 == None
+                Category.tier3 == ""
             ).first()
             if existing:
                 raise HTTPException(status_code=400, detail="Tier2 category already exists")
@@ -186,7 +186,7 @@ async def create_tier2_category(tier1: str, name: str):
             new_category = Category(
                 tier1=tier1,
                 tier2=name,
-                tier3=None
+                tier3=""
             )
             db.add(new_category)
             db.commit()

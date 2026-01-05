@@ -65,7 +65,21 @@ class TransactionRepository:
         if category_tier3:
             query = query.filter(Transaction.category_tier3 == category_tier3)
         if is_internal_transfer is not None:
-            query = query.filter(Transaction.is_internal_transfer == is_internal_transfer)
+            # Dual filtering: check both is_internal_transfer field AND category
+            if is_internal_transfer:
+                # Show internal: EITHER field is true OR category matches
+                query = query.filter(
+                    or_(
+                        Transaction.is_internal_transfer == True,
+                        Transaction.category_tier1 == "Presuny (Neutrálne)"
+                    )
+                )
+            else:
+                # Exclude internal: BOTH field is false AND category doesn't match
+                query = query.filter(
+                    Transaction.is_internal_transfer == False,
+                    Transaction.category_tier1 != "Presuny (Neutrálne)"
+                )
         if min_amount is not None:
             query = query.filter(Transaction.amount >= min_amount)
         if max_amount is not None:
@@ -254,7 +268,11 @@ class TransactionRepository:
         if owner_id:
             query = query.filter(Transaction.owner_id == owner_id)
         if not include_internal:
-            query = query.filter(Transaction.is_internal_transfer == False)
+            # Exclude internal: BOTH field is false AND category doesn't match
+            query = query.filter(
+                Transaction.is_internal_transfer == False,
+                Transaction.category_tier1 != "Presuny (Neutrálne)"
+            )
 
         # Apply tier filters for drill-down
         if tier1:
@@ -345,7 +363,11 @@ class TransactionRepository:
         if category_tier1:
             query = query.filter(Transaction.category_tier1 == category_tier1)
         if not include_internal:
-            query = query.filter(Transaction.is_internal_transfer == False)
+            # Exclude internal: BOTH field is false AND category doesn't match
+            query = query.filter(
+                Transaction.is_internal_transfer == False,
+                Transaction.category_tier1 != "Presuny (Neutrálne)"
+            )
 
         # Group by month and order ascending (oldest first)
         query = query.group_by(month_label)
@@ -410,7 +432,11 @@ class TransactionRepository:
             query = query.filter(Transaction.amount > 0)
 
         # Exclude internal transfers and null counterparties
-        query = query.filter(Transaction.is_internal_transfer == False)
+        # Dual filtering: BOTH field is false AND category doesn't match
+        query = query.filter(
+            Transaction.is_internal_transfer == False,
+            Transaction.category_tier1 != "Presuny (Neutrálne)"
+        )
         query = query.filter(Transaction.counterparty_name.isnot(None))
         query = query.filter(Transaction.counterparty_name != '')
 
@@ -491,7 +517,11 @@ class TransactionRepository:
             query = query.filter(Transaction.owner_id == owner_id)
 
         # Exclude internal transfers
-        query = query.filter(Transaction.is_internal_transfer == False)
+        # Dual filtering: BOTH field is false AND category doesn't match
+        query = query.filter(
+            Transaction.is_internal_transfer == False,
+            Transaction.category_tier1 != "Presuny (Neutrálne)"
+        )
 
         # Group and order
         query = query.group_by(period_label)
@@ -556,7 +586,11 @@ class TransactionRepository:
 
         # Apply common filters
         if not include_internal:
-            categories_query = categories_query.filter(Transaction.is_internal_transfer == False)
+            # Exclude internal: BOTH field is false AND category doesn't match
+            categories_query = categories_query.filter(
+                Transaction.is_internal_transfer == False,
+                Transaction.category_tier1 != "Presuny (Neutrálne)"
+            )
         categories_query = categories_query.filter(category_field.isnot(None))
         categories_query = categories_query.filter(Transaction.amount < 0)  # Only expenses
 
@@ -586,7 +620,11 @@ class TransactionRepository:
         if owner_id:
             query = query.filter(Transaction.owner_id == owner_id)
         if not include_internal:
-            query = query.filter(Transaction.is_internal_transfer == False)
+            # Exclude internal: BOTH field is false AND category doesn't match
+            query = query.filter(
+                Transaction.is_internal_transfer == False,
+                Transaction.category_tier1 != "Presuny (Neutrálne)"
+            )
 
         # Apply drill-down filters
         if tier1:
@@ -653,7 +691,12 @@ class TransactionRepository:
             if owner_id:
                 query = query.filter(Transaction.owner_id == owner_id)
 
-            query = query.filter(Transaction.is_internal_transfer == False)
+            # Exclude internal transfers
+            # Dual filtering: BOTH field is false AND category doesn't match
+            query = query.filter(
+                Transaction.is_internal_transfer == False,
+                Transaction.category_tier1 != "Presuny (Neutrálne)"
+            )
 
             # Calculate aggregates
             income = query.filter(Transaction.amount > 0).with_entities(

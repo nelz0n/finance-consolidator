@@ -308,24 +308,263 @@ async def delete_tier3_category(tier1: str, tier2: str, tier3: str):
 
 @router.put("/tier1/{old_name}")
 async def rename_tier1_category(old_name: str, new_name: str):
-    """Rename a tier1 category"""
+    """
+    Rename a tier1 category and cascade to all transactions and rules.
+
+    Updates:
+    - Category table entries (all rows with tier1=old_name)
+    - Transaction.category_tier1 where it matches old_name
+    - CategorizationRule.category_tier1 where it matches old_name
+    """
     try:
-        categories = load_categories_from_database()
+        from backend.database.connection import get_db_context
+        from backend.database.models import Category, Transaction, CategorizationRule
 
-        # Find and rename
-        found = False
-        for cat in categories:
-            if cat['tier1'] == old_name:
-                cat['tier1'] = new_name
-                found = True
-                break
+        with get_db_context() as db:
+            # 1. Validate: Check if new_name would create duplicate
+            duplicate = db.query(Category).filter(
+                Category.tier1 == new_name
+            ).first()
+            if duplicate:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Category '{new_name}' already exists"
+                )
 
-        if not found:
-            raise HTTPException(status_code=404, detail="Category not found")
+            # 2. Check if old_name exists
+            existing = db.query(Category).filter(
+                Category.tier1 == old_name
+            ).first()
+            if not existing:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Category '{old_name}' not found"
+                )
 
-        return {'message': 'Tier1 category renamed successfully'}
+            # 3. Update Category table (all entries with this tier1)
+            db.query(Category).filter(
+                Category.tier1 == old_name
+            ).update(
+                {Category.tier1: new_name},
+                synchronize_session=False
+            )
+
+            # 4. CASCADE: Update all transactions
+            txn_count = db.query(Transaction).filter(
+                Transaction.category_tier1 == old_name
+            ).update(
+                {Transaction.category_tier1: new_name},
+                synchronize_session=False
+            )
+
+            # 5. CASCADE: Update all rules
+            rule_count = db.query(CategorizationRule).filter(
+                CategorizationRule.category_tier1 == old_name
+            ).update(
+                {CategorizationRule.category_tier1: new_name},
+                synchronize_session=False
+            )
+
+            db.commit()
+
+            logger.info(
+                f"Renamed tier1 '{old_name}' -> '{new_name}': "
+                f"{txn_count} transactions, {rule_count} rules updated"
+            )
+
+            return {
+                'message': 'Tier1 category renamed successfully',
+                'updated': {
+                    'transactions': txn_count,
+                    'rules': rule_count
+                }
+            }
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error renaming tier1 category: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/tier2/{tier1}/{old_name}")
+async def rename_tier2_category(tier1: str, old_name: str, new_name: str):
+    """
+    Rename a tier2 category and cascade to all transactions and rules.
+
+    Updates:
+    - Category table entries where tier1=tier1 AND tier2=old_name
+    - Transaction records where tier1=tier1 AND tier2=old_name
+    - Rules where tier1=tier1 AND tier2=old_name
+    """
+    try:
+        from backend.database.connection import get_db_context
+        from backend.database.models import Category, Transaction, CategorizationRule
+
+        with get_db_context() as db:
+            # 1. Validate: Check for duplicates
+            duplicate = db.query(Category).filter(
+                Category.tier1 == tier1,
+                Category.tier2 == new_name
+            ).first()
+            if duplicate:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Category '{tier1} > {new_name}' already exists"
+                )
+
+            # 2. Check if old_name exists
+            existing = db.query(Category).filter(
+                Category.tier1 == tier1,
+                Category.tier2 == old_name
+            ).first()
+            if not existing:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Category '{tier1} > {old_name}' not found"
+                )
+
+            # 3. Update Category table
+            db.query(Category).filter(
+                Category.tier1 == tier1,
+                Category.tier2 == old_name
+            ).update(
+                {Category.tier2: new_name},
+                synchronize_session=False
+            )
+
+            # 4. CASCADE: Update transactions
+            txn_count = db.query(Transaction).filter(
+                Transaction.category_tier1 == tier1,
+                Transaction.category_tier2 == old_name
+            ).update(
+                {Transaction.category_tier2: new_name},
+                synchronize_session=False
+            )
+
+            # 5. CASCADE: Update rules
+            rule_count = db.query(CategorizationRule).filter(
+                CategorizationRule.category_tier1 == tier1,
+                CategorizationRule.category_tier2 == old_name
+            ).update(
+                {CategorizationRule.category_tier2: new_name},
+                synchronize_session=False
+            )
+
+            db.commit()
+
+            logger.info(
+                f"Renamed tier2 '{tier1} > {old_name}' -> '{new_name}': "
+                f"{txn_count} transactions, {rule_count} rules updated"
+            )
+
+            return {
+                'message': 'Tier2 category renamed successfully',
+                'updated': {
+                    'transactions': txn_count,
+                    'rules': rule_count
+                }
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error renaming tier2 category: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/tier3/{tier1}/{tier2}/{old_name}")
+async def rename_tier3_category(tier1: str, tier2: str, old_name: str, new_name: str):
+    """
+    Rename a tier3 category and cascade to all transactions and rules.
+
+    Updates:
+    - Category table entries where tier1+tier2+tier3 match
+    - Transaction records where all 3 tiers match
+    - Rules where all 3 tiers match
+    """
+    try:
+        from backend.database.connection import get_db_context
+        from backend.database.models import Category, Transaction, CategorizationRule
+
+        with get_db_context() as db:
+            # 1. Validate: Check for duplicates
+            duplicate = db.query(Category).filter(
+                Category.tier1 == tier1,
+                Category.tier2 == tier2,
+                Category.tier3 == new_name
+            ).first()
+            if duplicate:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Category '{tier1} > {tier2} > {new_name}' already exists"
+                )
+
+            # 2. Check if old_name exists
+            existing = db.query(Category).filter(
+                Category.tier1 == tier1,
+                Category.tier2 == tier2,
+                Category.tier3 == old_name
+            ).first()
+            if not existing:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Category '{tier1} > {tier2} > {old_name}' not found"
+                )
+
+            # 3. Update Category table
+            db.query(Category).filter(
+                Category.tier1 == tier1,
+                Category.tier2 == tier2,
+                Category.tier3 == old_name
+            ).update(
+                {Category.tier3: new_name},
+                synchronize_session=False
+            )
+
+            # 4. CASCADE: Update transactions
+            txn_count = db.query(Transaction).filter(
+                Transaction.category_tier1 == tier1,
+                Transaction.category_tier2 == tier2,
+                Transaction.category_tier3 == old_name
+            ).update(
+                {Transaction.category_tier3: new_name},
+                synchronize_session=False
+            )
+
+            # 5. CASCADE: Update rules
+            rule_count = db.query(CategorizationRule).filter(
+                CategorizationRule.category_tier1 == tier1,
+                CategorizationRule.category_tier2 == tier2,
+                CategorizationRule.category_tier3 == old_name
+            ).update(
+                {CategorizationRule.category_tier3: new_name},
+                synchronize_session=False
+            )
+
+            db.commit()
+
+            logger.info(
+                f"Renamed tier3 '{tier1} > {tier2} > {old_name}' -> '{new_name}': "
+                f"{txn_count} transactions, {rule_count} rules updated"
+            )
+
+            return {
+                'message': 'Tier3 category renamed successfully',
+                'updated': {
+                    'transactions': txn_count,
+                    'rules': rule_count
+                }
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error renaming tier3 category: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))

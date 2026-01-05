@@ -182,8 +182,25 @@
           params: { new_name: editingNewName }
         });
         success = 'Category renamed successfully';
+      } else if (editingCategory.level === 'tier2') {
+        await api.put(
+          `/categories/tier2/${editingCategory.tier1}/${editingCategory.tier2}`,
+          null,
+          {
+            params: { new_name: editingNewName }
+          }
+        );
+        success = 'Category renamed successfully';
+      } else if (editingCategory.level === 'tier3') {
+        await api.put(
+          `/categories/tier3/${editingCategory.tier1}/${editingCategory.tier2}/${editingCategory.tier3}`,
+          null,
+          {
+            params: { new_name: editingNewName }
+          }
+        );
+        success = 'Category renamed successfully';
       }
-      // Add tier2 and tier3 rename endpoints if needed
 
       editingCategory = null;
       editingNewName = '';

@@ -225,21 +225,30 @@
   }
 
   function isEditing(tier1, tier2 = null, tier3 = null) {
-    if (!editingCategory) return false;
-
-    if (tier3) {
-      return editingCategory.level === 'tier3' &&
-             editingCategory.tier1 === tier1 &&
-             editingCategory.tier2 === tier2 &&
-             editingCategory.tier3 === tier3;
-    } else if (tier2) {
-      return editingCategory.level === 'tier2' &&
-             editingCategory.tier1 === tier1 &&
-             editingCategory.tier2 === tier2;
-    } else {
-      return editingCategory.level === 'tier1' &&
-             editingCategory.tier1 === tier1;
+    if (!editingCategory) {
+      return false;
     }
+
+    let result = false;
+    if (tier3) {
+      result = editingCategory.level === 'tier3' &&
+               editingCategory.tier1 === tier1 &&
+               editingCategory.tier2 === tier2 &&
+               editingCategory.tier3 === tier3;
+    } else if (tier2) {
+      result = editingCategory.level === 'tier2' &&
+               editingCategory.tier1 === tier1 &&
+               editingCategory.tier2 === tier2;
+    } else {
+      result = editingCategory.level === 'tier1' &&
+               editingCategory.tier1 === tier1;
+    }
+
+    if (result) {
+      console.log('isEditing TRUE for:', { tier1, tier2, tier3 }, 'editingCategory:', editingCategory);
+    }
+
+    return result;
   }
 </script>
 

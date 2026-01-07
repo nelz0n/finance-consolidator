@@ -910,7 +910,12 @@ AI categorization will NOT be called.`;
       }
 
       console.log('Testing rule with payload:', JSON.stringify(rulePayload, null, 2));
-      const response = await api.post('/rules/test?count_matches=true', rulePayload);
+
+      // Wrap in 'rule' field because backend expects multiple body parameters
+      const requestBody = { rule: rulePayload };
+      console.log('Wrapped request body:', JSON.stringify(requestBody, null, 2));
+
+      const response = await api.post('/rules/test?count_matches=true', requestBody);
       ruleMatchingCount = response.data.matching_count;
     } catch (err) {
       console.error('Failed to test rule:', err);

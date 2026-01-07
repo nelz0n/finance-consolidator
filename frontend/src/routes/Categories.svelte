@@ -14,9 +14,10 @@
   let addModalParentTier2 = '';
   let newCategoryName = '';
 
-  // Edit mode
+  // Edit mode - using $state for proper reactivity
   let editingCategory = null;
   let editingNewName = '';
+  let editingKey = 0; // Force re-render trigger
 
   // Expanded state for tree
   let expandedTier1 = new Set();
@@ -180,8 +181,13 @@
       editingCategory = { tier1, level: 'tier1' };
       editingNewName = tier1;
     }
+
+    // Force Svelte to re-render by incrementing key
+    editingKey++;
+
     console.log('Editing category set to:', editingCategory);
     console.log('editingNewName set to:', editingNewName);
+    console.log('editingKey incremented to:', editingKey);
 
     // Force a check after setting
     setTimeout(() => {
@@ -193,6 +199,7 @@
   function cancelEdit() {
     editingCategory = null;
     editingNewName = '';
+    editingKey++; // Force re-render
   }
 
   async function saveEdit() {
@@ -232,6 +239,7 @@
 
       editingCategory = null;
       editingNewName = '';
+      editingKey++; // Force re-render
       await loadCategories();
     } catch (err) {
       error = err.response?.data?.detail || err.message;
@@ -296,16 +304,18 @@
               {expandedTier1.has(tier1Cat.tier1) ? '▼' : '▶'}
             </button>
 
-            {#if isEditing(tier1Cat.tier1)}
-              <input
-                type="text"
-                class="edit-input"
-                bind:value={editingNewName}
-                on:keydown={(e) => e.key === 'Enter' && saveEdit()}
-              />
-              <button class="btn-icon btn-success" on:click={saveEdit}>✓</button>
-              <button class="btn-icon btn-danger" on:click={cancelEdit}>✗</button>
-            {:else}
+            {#key editingKey}
+              {#if isEditing(tier1Cat.tier1)}
+                <input
+                  type="text"
+                  class="edit-input"
+                  bind:value={editingNewName}
+                  on:keydown={(e) => e.key === 'Enter' && saveEdit()}
+                  autofocus
+                />
+                <button class="btn-icon btn-success" on:click={saveEdit}>✓</button>
+                <button class="btn-icon btn-danger" on:click={cancelEdit}>✗</button>
+              {:else}
               <span class="category-name">{tier1Cat.tier1}</span>
               <div class="category-actions">
                 <button
@@ -330,7 +340,8 @@
                   🗑
                 </button>
               </div>
-            {/if}
+              {/if}
+            {/key}
           </div>
 
           {#if expandedTier1.has(tier1Cat.tier1)}
@@ -345,18 +356,19 @@
                       {expandedTier2.has(`${tier1Cat.tier1}|${tier2Cat.tier2}`) ? '▼' : '▶'}
                     </button>
 
-                    <!-- Debug: Check what's being passed to isEditing -->
-                    {#if (() => { const result = isEditing(tier1Cat.tier1, tier2Cat.tier2); console.log('Template checking isEditing for tier2:', tier1Cat.tier1, tier2Cat.tier2, '=', result); return result; })()}
-                      <input
-                        type="text"
-                        class="edit-input"
-                        bind:value={editingNewName}
-                        on:keydown={(e) => e.key === 'Enter' && saveEdit()}
-                        autofocus
-                      />
-                      <button class="btn-icon btn-success" on:click={saveEdit}>✓</button>
-                      <button class="btn-icon btn-danger" on:click={cancelEdit}>✗</button>
-                    {:else}
+                    <!-- Use key block to force re-render when editingKey changes -->
+                    {#key editingKey}
+                      {#if isEditing(tier1Cat.tier1, tier2Cat.tier2)}
+                        <input
+                          type="text"
+                          class="edit-input"
+                          bind:value={editingNewName}
+                          on:keydown={(e) => e.key === 'Enter' && saveEdit()}
+                          autofocus
+                        />
+                        <button class="btn-icon btn-success" on:click={saveEdit}>✓</button>
+                        <button class="btn-icon btn-danger" on:click={cancelEdit}>✗</button>
+                      {:else}
                       <span class="category-name">{tier2Cat.tier2}</span>
                       <div class="category-actions">
                         <button
@@ -381,7 +393,8 @@
                           🗑
                         </button>
                       </div>
-                    {/if}
+                      {/if}
+                    {/key}
                   </div>
 
                   {#if expandedTier2.has(`${tier1Cat.tier1}|${tier2Cat.tier2}`)}
@@ -389,16 +402,18 @@
                       {#each tier2Cat.tier3 as tier3Name}
                         <div class="category-item tier3-item">
                           <span class="tier3-bullet">•</span>
-                          {#if isEditing(tier1Cat.tier1, tier2Cat.tier2, tier3Name)}
-                            <input
-                              type="text"
-                              class="edit-input"
-                              bind:value={editingNewName}
-                              on:keydown={(e) => e.key === 'Enter' && saveEdit()}
-                            />
-                            <button class="btn-icon btn-success" on:click={saveEdit}>✓</button>
-                            <button class="btn-icon btn-danger" on:click={cancelEdit}>✗</button>
-                          {:else}
+                          {#key editingKey}
+                            {#if isEditing(tier1Cat.tier1, tier2Cat.tier2, tier3Name)}
+                              <input
+                                type="text"
+                                class="edit-input"
+                                bind:value={editingNewName}
+                                on:keydown={(e) => e.key === 'Enter' && saveEdit()}
+                                autofocus
+                              />
+                              <button class="btn-icon btn-success" on:click={saveEdit}>✓</button>
+                              <button class="btn-icon btn-danger" on:click={cancelEdit}>✗</button>
+                            {:else}
                             <span class="category-name">{tier3Name}</span>
                             <div class="category-actions">
                               <button
@@ -416,7 +431,8 @@
                                 🗑
                               </button>
                             </div>
-                          {/if}
+                            {/if}
+                          {/key}
                         </div>
                       {/each}
                     </div>

@@ -251,14 +251,39 @@ async def create_tier3_category(tier1: str, tier2: str, name: str):
 async def delete_tier1_category(tier1: str):
     """Delete a tier1 category (and all its children)"""
     try:
-        categories = load_categories_from_database()
+        from backend.database.connection import get_db_context
+        from backend.database.models import Category, Transaction
 
-        # Remove tier1
-        categories = [cat for cat in categories if cat['tier1'] != tier1]
+        with get_db_context() as db:
+            # Check for transactions using this category
+            txn_count = db.query(Transaction).filter(
+                Transaction.category_tier1 == tier1
+            ).count()
 
-        return {'message': 'Tier1 category deleted successfully'}
+            if txn_count > 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot delete category: {txn_count} transaction(s) are using this category"
+                )
+
+            # Delete all categories with this tier1
+            deleted_count = db.query(Category).filter(
+                Category.tier1 == tier1
+            ).delete(synchronize_session=False)
+
+            db.commit()
+
+            logger.info(f"Deleted tier1 '{tier1}': {deleted_count} category rows removed")
+            return {
+                'message': 'Tier1 category deleted successfully',
+                'deleted_count': deleted_count
+            }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error deleting tier1 category: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -266,20 +291,41 @@ async def delete_tier1_category(tier1: str):
 async def delete_tier2_category(tier1: str, tier2: str):
     """Delete a tier2 category (and all its children)"""
     try:
-        categories = load_categories_from_database()
+        from backend.database.connection import get_db_context
+        from backend.database.models import Category, Transaction
 
-        # Find and remove tier2
-        for cat in categories:
-            if cat['tier1'] == tier1:
-                cat['tier2_categories'] = [
-                    t2 for t2 in cat.get('tier2_categories', [])
-                    if t2['tier2'] != tier2
-                ]
-                break
+        with get_db_context() as db:
+            # Check for transactions using this category
+            txn_count = db.query(Transaction).filter(
+                Transaction.category_tier1 == tier1,
+                Transaction.category_tier2 == tier2
+            ).count()
 
-        return {'message': 'Tier2 category deleted successfully'}
+            if txn_count > 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot delete category: {txn_count} transaction(s) are using this category"
+                )
+
+            # Delete all categories with this tier1+tier2
+            deleted_count = db.query(Category).filter(
+                Category.tier1 == tier1,
+                Category.tier2 == tier2
+            ).delete(synchronize_session=False)
+
+            db.commit()
+
+            logger.info(f"Deleted tier2 '{tier1} > {tier2}': {deleted_count} category rows removed")
+            return {
+                'message': 'Tier2 category deleted successfully',
+                'deleted_count': deleted_count
+            }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error deleting tier2 category: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -287,22 +333,43 @@ async def delete_tier2_category(tier1: str, tier2: str):
 async def delete_tier3_category(tier1: str, tier2: str, tier3: str):
     """Delete a tier3 category"""
     try:
-        categories = load_categories_from_database()
+        from backend.database.connection import get_db_context
+        from backend.database.models import Category, Transaction
 
-        # Find and remove tier3
-        for cat in categories:
-            if cat['tier1'] == tier1:
-                for t2 in cat.get('tier2_categories', []):
-                    if t2['tier2'] == tier2:
-                        tier3_list = t2.get('tier3', [])
-                        if tier3 in tier3_list:
-                            tier3_list.remove(tier3)
-                        break
-                break
+        with get_db_context() as db:
+            # Check for transactions using this category
+            txn_count = db.query(Transaction).filter(
+                Transaction.category_tier1 == tier1,
+                Transaction.category_tier2 == tier2,
+                Transaction.category_tier3 == tier3
+            ).count()
 
-        return {'message': 'Tier3 category deleted successfully'}
+            if txn_count > 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot delete category: {txn_count} transaction(s) are using this category"
+                )
+
+            # Delete the specific tier3 category
+            deleted_count = db.query(Category).filter(
+                Category.tier1 == tier1,
+                Category.tier2 == tier2,
+                Category.tier3 == tier3
+            ).delete(synchronize_session=False)
+
+            db.commit()
+
+            logger.info(f"Deleted tier3 '{tier1} > {tier2} > {tier3}': {deleted_count} category rows removed")
+            return {
+                'message': 'Tier3 category deleted successfully',
+                'deleted_count': deleted_count
+            }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error deleting tier3 category: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 

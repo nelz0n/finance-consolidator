@@ -1,7 +1,7 @@
 <script>
   import { Link } from 'svelte-routing';
   import { onMount } from 'svelte';
-  import api from '../../services/api';
+  import api from '../../lib/api';
 
   let version = { commit: 'loading...', branch: '', build_time: '', environment: '' };
 

@@ -875,28 +875,55 @@ AI categorization will NOT be called.`;
     try {
       testingRule = true;
 
-      // Transform payload to match RuleCreate schema
+      // Transform payload to match RuleCreate schema - only include non-empty fields
       const rulePayload = {
         priority: ruleFormPrefill.priority,
-        description_contains: ruleFormPrefill.description_contains || null,
-        institution_exact: ruleFormPrefill.institution_exact || null,
-        counterparty_account_exact: ruleFormPrefill.counterparty_account_exact || null,
-        counterparty_name_contains: ruleFormPrefill.counterparty_name_contains || null,
-        variable_symbol_exact: ruleFormPrefill.variable_symbol_exact || null,
-        type_contains: ruleFormPrefill.type_contains || null,
-        amount_czk_min: ruleFormPrefill.amount_czk_min,
-        amount_czk_max: ruleFormPrefill.amount_czk_max,
         tier1: ruleFormPrefill.category_tier1,
         tier2: ruleFormPrefill.category_tier2,
-        tier3: ruleFormPrefill.category_tier3,
-        owner: ''
+        tier3: ruleFormPrefill.category_tier3
       };
+
+      // Only add optional fields if they have values
+      if (ruleFormPrefill.description_contains) {
+        rulePayload.description_contains = ruleFormPrefill.description_contains;
+      }
+      if (ruleFormPrefill.institution_exact) {
+        rulePayload.institution_exact = ruleFormPrefill.institution_exact;
+      }
+      if (ruleFormPrefill.counterparty_account_exact) {
+        rulePayload.counterparty_account_exact = ruleFormPrefill.counterparty_account_exact;
+      }
+      if (ruleFormPrefill.counterparty_name_contains) {
+        rulePayload.counterparty_name_contains = ruleFormPrefill.counterparty_name_contains;
+      }
+      if (ruleFormPrefill.variable_symbol_exact) {
+        rulePayload.variable_symbol_exact = ruleFormPrefill.variable_symbol_exact;
+      }
+      if (ruleFormPrefill.type_contains) {
+        rulePayload.type_contains = ruleFormPrefill.type_contains;
+      }
+      if (ruleFormPrefill.amount_czk_min !== null && ruleFormPrefill.amount_czk_min !== undefined && ruleFormPrefill.amount_czk_min !== '') {
+        rulePayload.amount_czk_min = parseFloat(ruleFormPrefill.amount_czk_min);
+      }
+      if (ruleFormPrefill.amount_czk_max !== null && ruleFormPrefill.amount_czk_max !== undefined && ruleFormPrefill.amount_czk_max !== '') {
+        rulePayload.amount_czk_max = parseFloat(ruleFormPrefill.amount_czk_max);
+      }
 
       const response = await api.post('/rules/test?count_matches=true', rulePayload);
       ruleMatchingCount = response.data.matching_count;
     } catch (err) {
       console.error('Failed to test rule:', err);
-      const errorMsg = err.response?.data?.detail || err.message || JSON.stringify(err);
+      let errorMsg = err.message;
+
+      // Handle validation errors (422) which return an array
+      if (err.response?.data?.detail) {
+        if (Array.isArray(err.response.data.detail)) {
+          errorMsg = err.response.data.detail.map(e => e.msg || e).join(', ');
+        } else {
+          errorMsg = err.response.data.detail;
+        }
+      }
+
       alert('Failed to test rule: ' + errorMsg);
     } finally {
       testingRule = false;

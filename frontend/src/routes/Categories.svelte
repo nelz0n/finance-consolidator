@@ -150,6 +150,7 @@
   }
 
   function startEdit(tier1, tier2 = null, tier3 = null) {
+    console.log('startEdit called', { tier1, tier2, tier3 });
     if (tier3) {
       editingCategory = { tier1, tier2, tier3, level: 'tier3' };
       editingNewName = tier3;
@@ -160,6 +161,7 @@
       editingCategory = { tier1, level: 'tier1' };
       editingNewName = tier1;
     }
+    console.log('Editing category set to:', editingCategory);
   }
 
   function cancelEdit() {
@@ -280,7 +282,7 @@
                 </button>
                 <button
                   class="btn-icon"
-                  on:click={() => startEdit(tier1Cat.tier1)}
+                  on:click|stopPropagation={() => startEdit(tier1Cat.tier1)}
                   title="Rename"
                 >
                   ✎
@@ -329,7 +331,7 @@
                         </button>
                         <button
                           class="btn-icon"
-                          on:click={() => startEdit(tier1Cat.tier1, tier2Cat.tier2)}
+                          on:click|stopPropagation={() => startEdit(tier1Cat.tier1, tier2Cat.tier2)}
                           title="Rename"
                         >
                           ✎
@@ -364,7 +366,7 @@
                             <div class="category-actions">
                               <button
                                 class="btn-icon"
-                                on:click={() => startEdit(tier1Cat.tier1, tier2Cat.tier2, tier3Name)}
+                                on:click|stopPropagation={() => startEdit(tier1Cat.tier1, tier2Cat.tier2, tier3Name)}
                                 title="Rename"
                               >
                                 ✎

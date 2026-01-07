@@ -124,6 +124,8 @@
   }
 
   async function deleteCategory(tier1, tier2 = null, tier3 = null) {
+    console.log('deleteCategory called:', { tier1, tier2, tier3 });
+
     let confirmMsg = '';
     if (tier3) {
       confirmMsg = `Delete category "${tier3}"?`;
@@ -133,26 +135,44 @@
       confirmMsg = `Delete category "${tier1}" and all its subcategories?`;
     }
 
-    if (!confirm(confirmMsg)) return;
+    if (!confirm(confirmMsg)) {
+      console.log('Delete cancelled by user');
+      return;
+    }
 
     try {
       error = null;
       success = null;
 
+      let deleteUrl = '';
       if (tier3) {
-        await api.delete(`/categories/tier3/${tier1}/${tier2}/${tier3}`);
+        deleteUrl = `/categories/tier3/${tier1}/${tier2}/${tier3}`;
+        console.log('Deleting tier3:', deleteUrl);
+        await api.delete(deleteUrl);
         success = 'Tier3 category deleted';
       } else if (tier2) {
-        await api.delete(`/categories/tier2/${tier1}/${tier2}`);
+        deleteUrl = `/categories/tier2/${tier1}/${tier2}`;
+        console.log('Deleting tier2:', deleteUrl);
+        await api.delete(deleteUrl);
         success = 'Tier2 category deleted';
       } else {
-        await api.delete(`/categories/tier1/${tier1}`);
+        deleteUrl = `/categories/tier1/${tier1}`;
+        console.log('Deleting tier1:', deleteUrl);
+        await api.delete(deleteUrl);
         success = 'Tier1 category deleted';
       }
 
+      console.log('Delete successful:', success);
+      // Auto-clear success message after 3 seconds
+      setTimeout(() => { success = null; }, 3000);
+
       await loadCategories();
     } catch (err) {
-      error = err.response?.data?.detail || err.message;
+      console.error('Error deleting category:', err);
+      error = err.response?.data?.detail || err.message || 'Failed to delete category';
+      console.log('Error set to:', error);
+      // Auto-clear error after 5 seconds
+      setTimeout(() => { error = null; }, 5000);
     }
   }
 

@@ -765,10 +765,10 @@ class TransactionRepository:
                 - amount_czk_max
 
         Returns:
-            Number of active transactions matching all provided conditions
+            Number of transactions matching all provided conditions
         """
-        # Get all active transactions
-        query = self.db.query(Transaction).filter(Transaction.is_active == True)
+        # Get all transactions (Transaction model doesn't have is_active field)
+        query = self.db.query(Transaction)
 
         # Description contains (case insensitive)
         if 'description_contains' in rule_conditions and rule_conditions['description_contains']:

@@ -26,6 +26,12 @@
     await loadCategories();
   });
 
+  // Debug: Watch editingCategory changes
+  $: {
+    console.log('REACTIVE: editingCategory changed to:', editingCategory);
+    console.log('REACTIVE: editingNewName is:', editingNewName);
+  }
+
   async function loadCategories() {
     try {
       loading = true;
@@ -153,6 +159,7 @@
 
   function startEdit(tier1, tier2 = null, tier3 = null) {
     console.log('startEdit called', { tier1, tier2, tier3 });
+    console.log('startEdit arguments:', arguments);
 
     // Prevent rapid multiple calls
     if (editingLock) {
@@ -174,6 +181,13 @@
       editingNewName = tier1;
     }
     console.log('Editing category set to:', editingCategory);
+    console.log('editingNewName set to:', editingNewName);
+
+    // Force a check after setting
+    setTimeout(() => {
+      console.log('After state update, editingCategory is:', editingCategory);
+      console.log('Checking isEditing(tier1, tier2, tier3):', isEditing(tier1, tier2, tier3));
+    }, 50);
   }
 
   function cancelEdit() {
@@ -331,12 +345,14 @@
                       {expandedTier2.has(`${tier1Cat.tier1}|${tier2Cat.tier2}`) ? '▼' : '▶'}
                     </button>
 
-                    {#if isEditing(tier1Cat.tier1, tier2Cat.tier2)}
+                    <!-- Debug: Check what's being passed to isEditing -->
+                    {#if (() => { const result = isEditing(tier1Cat.tier1, tier2Cat.tier2); console.log('Template checking isEditing for tier2:', tier1Cat.tier1, tier2Cat.tier2, '=', result); return result; })()}
                       <input
                         type="text"
                         class="edit-input"
                         bind:value={editingNewName}
                         on:keydown={(e) => e.key === 'Enter' && saveEdit()}
+                        autofocus
                       />
                       <button class="btn-icon btn-success" on:click={saveEdit}>✓</button>
                       <button class="btn-icon btn-danger" on:click={cancelEdit}>✗</button>

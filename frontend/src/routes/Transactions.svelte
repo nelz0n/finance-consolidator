@@ -909,22 +909,34 @@ AI categorization will NOT be called.`;
         rulePayload.amount_czk_max = parseFloat(ruleFormPrefill.amount_czk_max);
       }
 
+      console.log('Testing rule with payload:', JSON.stringify(rulePayload, null, 2));
       const response = await api.post('/rules/test?count_matches=true', rulePayload);
       ruleMatchingCount = response.data.matching_count;
     } catch (err) {
       console.error('Failed to test rule:', err);
+      console.error('Error response:', err.response);
+      console.error('Error response data:', err.response?.data);
+
       let errorMsg = err.message;
 
       // Handle validation errors (422) which return an array
       if (err.response?.data?.detail) {
+        console.log('Error detail:', err.response.data.detail);
         if (Array.isArray(err.response.data.detail)) {
-          errorMsg = err.response.data.detail.map(e => e.msg || e).join(', ');
+          const messages = err.response.data.detail.map(e => {
+            if (typeof e === 'object' && e.loc && e.msg) {
+              return `${e.loc.join('.')}: ${e.msg}`;
+            }
+            return e.msg || JSON.stringify(e);
+          });
+          errorMsg = messages.join('\n');
         } else {
           errorMsg = err.response.data.detail;
         }
       }
 
-      alert('Failed to test rule: ' + errorMsg);
+      console.log('Final error message:', errorMsg);
+      alert('Failed to test rule:\n\n' + errorMsg);
     } finally {
       testingRule = false;
     }

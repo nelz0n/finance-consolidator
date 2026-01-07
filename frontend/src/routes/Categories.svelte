@@ -242,7 +242,11 @@
       editingKey++; // Force re-render
       await loadCategories();
     } catch (err) {
-      error = err.response?.data?.detail || err.message;
+      console.error('Error saving category edit:', err);
+      error = err.response?.data?.detail || err.message || 'Failed to rename category';
+      console.log('Error set to:', error);
+      // Clear error after 5 seconds
+      setTimeout(() => { error = null; }, 5000);
     }
   }
 

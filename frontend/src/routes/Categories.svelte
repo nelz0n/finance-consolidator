@@ -308,23 +308,41 @@
                       {expandedTier2.has(`${tier1Cat.tier1}|${tier2Cat.tier2}`) ? '▼' : '▶'}
                     </button>
 
-                    <span class="category-name">{tier2Cat.tier2}</span>
-                    <div class="category-actions">
-                      <button
-                        class="btn-icon"
-                        on:click={() => openAddModal('tier3', tier1Cat.tier1, tier2Cat.tier2)}
-                        title="Add Tier3"
-                      >
-                        +
-                      </button>
-                      <button
-                        class="btn-icon btn-danger"
-                        on:click={() => deleteCategory(tier1Cat.tier1, tier2Cat.tier2)}
-                        title="Delete"
-                      >
-                        🗑
-                      </button>
-                    </div>
+                    {#if isEditing(tier1Cat.tier1, tier2Cat.tier2)}
+                      <input
+                        type="text"
+                        class="edit-input"
+                        bind:value={editingNewName}
+                        on:keydown={(e) => e.key === 'Enter' && saveEdit()}
+                      />
+                      <button class="btn-icon btn-success" on:click={saveEdit}>✓</button>
+                      <button class="btn-icon btn-danger" on:click={cancelEdit}>✗</button>
+                    {:else}
+                      <span class="category-name">{tier2Cat.tier2}</span>
+                      <div class="category-actions">
+                        <button
+                          class="btn-icon"
+                          on:click={() => openAddModal('tier3', tier1Cat.tier1, tier2Cat.tier2)}
+                          title="Add Tier3"
+                        >
+                          +
+                        </button>
+                        <button
+                          class="btn-icon"
+                          on:click={() => startEdit(tier1Cat.tier1, tier2Cat.tier2)}
+                          title="Rename"
+                        >
+                          ✎
+                        </button>
+                        <button
+                          class="btn-icon btn-danger"
+                          on:click={() => deleteCategory(tier1Cat.tier1, tier2Cat.tier2)}
+                          title="Delete"
+                        >
+                          🗑
+                        </button>
+                      </div>
+                    {/if}
                   </div>
 
                   {#if expandedTier2.has(`${tier1Cat.tier1}|${tier2Cat.tier2}`)}
@@ -332,16 +350,34 @@
                       {#each tier2Cat.tier3 as tier3Name}
                         <div class="category-item tier3-item">
                           <span class="tier3-bullet">•</span>
-                          <span class="category-name">{tier3Name}</span>
-                          <div class="category-actions">
-                            <button
-                              class="btn-icon btn-danger"
-                              on:click={() => deleteCategory(tier1Cat.tier1, tier2Cat.tier2, tier3Name)}
-                              title="Delete"
-                            >
-                              🗑
-                            </button>
-                          </div>
+                          {#if isEditing(tier1Cat.tier1, tier2Cat.tier2, tier3Name)}
+                            <input
+                              type="text"
+                              class="edit-input"
+                              bind:value={editingNewName}
+                              on:keydown={(e) => e.key === 'Enter' && saveEdit()}
+                            />
+                            <button class="btn-icon btn-success" on:click={saveEdit}>✓</button>
+                            <button class="btn-icon btn-danger" on:click={cancelEdit}>✗</button>
+                          {:else}
+                            <span class="category-name">{tier3Name}</span>
+                            <div class="category-actions">
+                              <button
+                                class="btn-icon"
+                                on:click={() => startEdit(tier1Cat.tier1, tier2Cat.tier2, tier3Name)}
+                                title="Rename"
+                              >
+                                ✎
+                              </button>
+                              <button
+                                class="btn-icon btn-danger"
+                                on:click={() => deleteCategory(tier1Cat.tier1, tier2Cat.tier2, tier3Name)}
+                                title="Delete"
+                              >
+                                🗑
+                              </button>
+                            </div>
+                          {/if}
                         </div>
                       {/each}
                     </div>

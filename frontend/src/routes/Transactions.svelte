@@ -896,7 +896,8 @@ AI categorization will NOT be called.`;
       ruleMatchingCount = response.data.matching_count;
     } catch (err) {
       console.error('Failed to test rule:', err);
-      alert('Failed to test rule: ' + (err.response?.data?.detail || err.message));
+      const errorMsg = err.response?.data?.detail || err.message || JSON.stringify(err);
+      alert('Failed to test rule: ' + errorMsg);
     } finally {
       testingRule = false;
     }

@@ -66,9 +66,9 @@ async def list_rules():
 
         # Convert to response model format
         formatted_rules = []
-        for idx, rule in enumerate(rules):
+        for rule in rules:
             formatted_rules.append({
-                'id': idx,
+                'id': rule.get('id'),  # Use actual database ID, not array index
                 'priority': rule.get('priority', 0),
                 'description_contains': rule.get('description_contains', ''),
                 'institution_exact': rule.get('institution_exact', ''),

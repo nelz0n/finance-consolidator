@@ -14,6 +14,9 @@
   let addModalParentTier2 = '';
   let newCategoryName = '';
 
+  // Track mousedown on modal backdrop to prevent closing when selecting text
+  let addModalBackdropMouseDown = false;
+
   // Edit mode - using $state for proper reactivity
   let editingCategory = null;
   let editingNewName = '';
@@ -473,8 +476,15 @@
 
 <!-- Add Category Modal -->
 {#if showAddModal}
-  <div class="modal-backdrop" on:click={closeAddModal}>
-    <div class="modal" on:click|stopPropagation>
+  <div class="modal-backdrop"
+    on:mousedown={() => addModalBackdropMouseDown = true}
+    on:mouseup={() => {
+      if (addModalBackdropMouseDown) {
+        closeAddModal();
+      }
+      addModalBackdropMouseDown = false;
+    }}>
+    <div class="modal" on:click|stopPropagation on:mousedown|stopPropagation on:mouseup|stopPropagation>
       <div class="modal-header">
         <h2>Add {addModalType === 'tier1' ? 'Tier1' : addModalType === 'tier2' ? 'Tier2' : 'Tier3'} Category</h2>
         <button class="close-btn" on:click={closeAddModal}>×</button>

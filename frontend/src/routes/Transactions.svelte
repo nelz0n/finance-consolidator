@@ -56,6 +56,12 @@
 
   // Rule creation from transaction
   let showRuleModal = false;
+
+  // Track mousedown on modal backdrops to prevent closing when selecting text
+  let editModalBackdropMouseDown = false;
+  let bulkEditModalBackdropMouseDown = false;
+  let ruleModalBackdropMouseDown = false;
+
   let ruleFormPrefill = {
     priority: 50,
     description_contains: '',
@@ -819,8 +825,8 @@ AI categorization will NOT be called.`;
       counterparty_name_contains: txn.counterparty_name || '',
       variable_symbol_exact: txn.variable_symbol || '',
       type_contains: txn.transaction_type || '',
-      amount_czk_min: txn.amount_czk ? Math.floor(txn.amount_czk * 0.9) : null,
-      amount_czk_max: txn.amount_czk ? Math.ceil(txn.amount_czk * 1.1) : null,
+      amount_czk_min: null,
+      amount_czk_max: null,
       category_tier1: txn.category_tier1 || '',
       category_tier2: txn.category_tier2 || '',
       category_tier3: txn.category_tier3 || ''
@@ -1643,8 +1649,15 @@ AI categorization will NOT be called.`;
 
   <!-- Edit Transaction Modal -->
   {#if showEditModal}
-    <div class="modal-backdrop" on:click={closeEditModal}>
-      <div class="modal" on:click|stopPropagation>
+    <div class="modal-backdrop"
+      on:mousedown={() => editModalBackdropMouseDown = true}
+      on:mouseup={() => {
+        if (editModalBackdropMouseDown) {
+          closeEditModal();
+        }
+        editModalBackdropMouseDown = false;
+      }}>
+      <div class="modal" on:click|stopPropagation on:mousedown|stopPropagation on:mouseup|stopPropagation>
         <div class="modal-header">
           <h2>Edit Transaction</h2>
           <button class="btn-close" on:click={closeEditModal}>✕</button>
@@ -1774,8 +1787,15 @@ AI categorization will NOT be called.`;
 
   <!-- Bulk Edit Categories Modal -->
   {#if showBulkEditModal}
-    <div class="modal-backdrop" on:click={() => showBulkEditModal = false}>
-      <div class="modal" on:click|stopPropagation>
+    <div class="modal-backdrop"
+      on:mousedown={() => bulkEditModalBackdropMouseDown = true}
+      on:mouseup={() => {
+        if (bulkEditModalBackdropMouseDown) {
+          showBulkEditModal = false;
+        }
+        bulkEditModalBackdropMouseDown = false;
+      }}>
+      <div class="modal" on:click|stopPropagation on:mousedown|stopPropagation on:mouseup|stopPropagation>
         <div class="modal-header">
           <h2>✏️ Bulk Edit Categories ({selectedTransactions.length} transactions)</h2>
           <button class="btn-close" on:click={() => showBulkEditModal = false}>✕</button>
@@ -1833,8 +1853,15 @@ AI categorization will NOT be called.`;
 
   <!-- Rule Creation Modal -->
   {#if showRuleModal}
-    <div class="modal-backdrop" on:click={() => showRuleModal = false}>
-      <div class="modal rule-modal" on:click|stopPropagation>
+    <div class="modal-backdrop"
+      on:mousedown={() => ruleModalBackdropMouseDown = true}
+      on:mouseup={() => {
+        if (ruleModalBackdropMouseDown) {
+          showRuleModal = false;
+        }
+        ruleModalBackdropMouseDown = false;
+      }}>
+      <div class="modal rule-modal" on:click|stopPropagation on:mousedown|stopPropagation on:mouseup|stopPropagation>
         <div class="modal-header">
           <h2>➕ Create Categorization Rule</h2>
           <button class="btn-close" on:click={() => showRuleModal = false}>✕</button>

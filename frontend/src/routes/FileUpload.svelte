@@ -17,6 +17,9 @@
   let currentJobLog = null;
   let viewingJobId = null;
 
+  // Track mousedown on modal backdrop to prevent closing when selecting text
+  let logModalBackdropMouseDown = false;
+
   // Auto-refresh jobs every 2 seconds
   let refreshInterval;
 
@@ -311,8 +314,15 @@
 
   <!-- Job Log Modal -->
   {#if showLogModal && currentJobLog}
-    <div class="modal-backdrop" on:click={closeLogModal}>
-      <div class="modal log-modal" on:click|stopPropagation>
+    <div class="modal-backdrop"
+      on:mousedown={() => logModalBackdropMouseDown = true}
+      on:mouseup={() => {
+        if (logModalBackdropMouseDown) {
+          closeLogModal();
+        }
+        logModalBackdropMouseDown = false;
+      }}>
+      <div class="modal log-modal" on:click|stopPropagation on:mousedown|stopPropagation on:mouseup|stopPropagation>
         <div class="modal-header">
           <h2>Processing Log: {currentJobLog.filename}</h2>
           <button class="btn-close" on:click={closeLogModal}>✕</button>

@@ -83,6 +83,9 @@
   let showAddAccountModal = false;
   let accountForm = { account_number: '', description: '' };
 
+  // Track mousedown on modal backdrop to prevent closing when selecting text
+  let accountModalBackdropMouseDown = false;
+
   onMount(async () => {
     await loadSettings();
     if (activeTab === 'accounts') {
@@ -1330,8 +1333,15 @@
 
 <!-- Add/Edit Account Modal -->
 {#if showAddAccountModal}
-  <div class="modal-backdrop" on:click={closeAccountModal}>
-    <div class="modal" on:click|stopPropagation>
+  <div class="modal-backdrop"
+    on:mousedown={() => accountModalBackdropMouseDown = true}
+    on:mouseup={() => {
+      if (accountModalBackdropMouseDown) {
+        closeAccountModal();
+      }
+      accountModalBackdropMouseDown = false;
+    }}>
+    <div class="modal" on:click|stopPropagation on:mousedown|stopPropagation on:mouseup|stopPropagation>
       <div class="modal-header">
         <h2>{editingAccount ? 'Edit Account' : 'Add New Account'}</h2>
         <button class="close-btn" on:click={closeAccountModal}>×</button>

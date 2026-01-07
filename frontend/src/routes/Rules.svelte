@@ -13,6 +13,9 @@
   let editingRule = null;
   let ruleForm = createEmptyRule();
 
+  // Track mousedown on modal backdrop to prevent closing when selecting text
+  let ruleModalBackdropMouseDown = false;
+
   // Filter state
   let filterText = '';
 
@@ -320,8 +323,15 @@
 
 <!-- Add/Edit Rule Modal -->
 {#if showRuleModal}
-  <div class="modal-backdrop" on:click={closeModal}>
-    <div class="modal modal-large" on:click|stopPropagation>
+  <div class="modal-backdrop"
+    on:mousedown={() => ruleModalBackdropMouseDown = true}
+    on:mouseup={() => {
+      if (ruleModalBackdropMouseDown) {
+        closeModal();
+      }
+      ruleModalBackdropMouseDown = false;
+    }}>
+    <div class="modal modal-large" on:click|stopPropagation on:mousedown|stopPropagation on:mouseup|stopPropagation>
       <div class="modal-header">
         <h2>{editingRule ? 'Edit Rule' : 'Add New Rule'}</h2>
         <button class="close-btn" on:click={closeModal}>×</button>

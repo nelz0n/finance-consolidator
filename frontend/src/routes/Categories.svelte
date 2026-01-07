@@ -149,8 +149,20 @@
     }
   }
 
+  let editingLock = false;
+
   function startEdit(tier1, tier2 = null, tier3 = null) {
     console.log('startEdit called', { tier1, tier2, tier3 });
+
+    // Prevent rapid multiple calls
+    if (editingLock) {
+      console.log('Edit already in progress, ignoring duplicate call');
+      return;
+    }
+
+    editingLock = true;
+    setTimeout(() => { editingLock = false; }, 100);
+
     if (tier3) {
       editingCategory = { tier1, tier2, tier3, level: 'tier3' };
       editingNewName = tier3;

@@ -776,10 +776,10 @@ class TransactionRepository:
                 Transaction.description.ilike(f"%{rule_conditions['description_contains']}%")
             )
 
-        # Institution exact (case insensitive)
+        # Institution exact (case insensitive) - need to join with Institution table
         if 'institution_exact' in rule_conditions and rule_conditions['institution_exact']:
-            query = query.filter(
-                Transaction.institution.ilike(rule_conditions['institution_exact'])
+            query = query.join(Institution, Transaction.institution_id == Institution.id).filter(
+                Institution.name.ilike(rule_conditions['institution_exact'])
             )
 
         # Counterparty name contains (case insensitive)
@@ -800,10 +800,10 @@ class TransactionRepository:
                 Transaction.variable_symbol == rule_conditions['variable_symbol_exact']
             )
 
-        # Type contains (case insensitive)
+        # Type contains (case insensitive) - field is transaction_type, not type
         if 'type_contains' in rule_conditions and rule_conditions['type_contains']:
             query = query.filter(
-                Transaction.type.ilike(f"%{rule_conditions['type_contains']}%")
+                Transaction.transaction_type.ilike(f"%{rule_conditions['type_contains']}%")
             )
 
         # Amount range (in CZK)
